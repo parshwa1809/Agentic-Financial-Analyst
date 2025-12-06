@@ -61,3 +61,27 @@ graph TD
     Worker -->|Fetch Data| Alpaca
     Worker -->|Write Data| TiDB
     Worker -->|Write Embeddings| FAISS
+````
+
+### 🟢 Layer 1: The Brain (API & AI)
+
+  * **Core:** FastAPI Server (`app/`)
+  * **Role:** Handles user interaction and orchestrates the AI agents.
+  * **Logic:** Uses **RAG (Retrieval-Augmented Generation)** to fetch relevant
+    news and price history from the vector database before answering user questions.
+
+### 🔵 Layer 2: The Face (Frontend)
+
+  * **Core:** React 18 + TypeScript (`client/`)
+  * **Role:** A responsive dashboard for visualizing real-time charts, alerts,
+    and the AI chat interface.
+  * **Tech:** Shadcn UI, Tailwind CSS, TanStack Query.
+
+### 🔴 Layer 3: The Muscle (Background Services)
+
+  * **Core:** Python Workers (`services/`)
+  * **Role:** The heavy lifters. These scripts run continuously in the background,
+    managed by **Redis**, to fetch data, calculate indicators, and generate alerts
+    without slowing down the user interface.
+
+-----
