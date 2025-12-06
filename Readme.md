@@ -1,11 +1,3 @@
-No problem. These are two easy fixes.
-
-1.  **For the Images:** Markdown is strict about file extensions. `image.jpg` and `image.jpeg` are different files to a computer. I have updated the code below to use **`.jpeg`**.
-2.  **For the Graph:** Mermaid diagrams often fail to render if there isn't a **blank line** before and after the code block. I have added those spacing buffers to ensure GitHub detects it as a graph.
-
-### 📋 Copy This Entire Block (The Final Fix)
-
-Overwrite your current `README.md` with this exact content.
 
 ````markdown
 # 📈 Live Stock Analysis Agent & Agentic RAG
@@ -26,7 +18,7 @@ financial data.
 
 | **Live Dashboard & Financial Metrics** | **AI Analyst & Council Debate** |
 |:---:|:---:|
-| ![Dashboard Overview](dashboard.jpeg) | ![AI Analysis](analysis.jpeg) |
+| ![Dashboard Overview](Dashboard.jpeg) | ![AI Analysis](Analysis.jpeg) |
 
 ---
 
