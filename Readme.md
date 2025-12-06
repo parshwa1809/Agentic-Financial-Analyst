@@ -1,3 +1,4 @@
+````markdown
 # 📈 Live Stock Analysis Agent & Agentic RAG
 
 ## 1. Project Objective
@@ -61,6 +62,7 @@ graph TD
     Worker -->|Fetch Data| Alpaca
     Worker -->|Write Data| TiDB
     Worker -->|Write Embeddings| FAISS
+````
 
 ### 🟢 Layer 1: The Brain (API & AI)
 
@@ -267,6 +269,7 @@ services/
 ### 🚀 Quick Start
 
 **1. Configure Environment**
+
 Create a `.env` file in the root with your credentials:
 
 ```env
@@ -302,4 +305,15 @@ docker-compose up --build
 <!-- end list -->
 
 ```
+
+### Step 3: Commit Changes
+Scroll down and click the green **Commit changes** button.
+
+### Step 4: Verify Images
+If the images **still** do not show up after this, please go to the "Code" tab of your GitHub repo and confirm:
+1.  Do you see `Dashboard.jpeg` in the file list?
+2.  Is it definitely `.jpeg` (with an 'e') and not `.jpg`?
+3.  Is the 'D' in Dashboard capitalized?
+
+This code uses `Dashboard.jpeg` and `Analysis.jpeg`. If your files are different in *any* way, they won't load.
 ```
