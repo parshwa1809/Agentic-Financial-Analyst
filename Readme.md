@@ -1,15 +1,13 @@
-I apologize. You are absolutely right—when I added the **Mermaid Workflow Diagrams** (Section 4), I accidentally **removed the "Directory Structure" section** to save space.
+Here is the **final, complete `README.md`**.
 
-That was a mistake. The detailed file breakdown is critical for understanding the codebase.
+It incorporates every fix we discussed:
 
-Here is the **final, fully consolidated `README.md`**. It now includes **everything**:
+1.  **Visuals:** Uses the simplified image names (`dashboard.jpg` / `analysis.jpg`).
+2.  **Architecture:** Includes the high-level Mermaid graph.
+3.  **Workflows:** Uses the **expanded** logic diagram showing all specific indicators (RSI, VWAP, BBands) and the detailed Alert Engine logic.
+4.  **Structure:** Includes the detailed breakdown of `app` vs `services`.
 
-1.  The **UI Previews** (Images).
-2.  The **System Architecture** (Mermaid Graph).
-3.  The **Workflows** (Mermaid Sequence/State Diagrams).
-4.  The **Directory Structure** (The detailed file tree you asked for).
-
-<!-- end list -->
+You can copy-paste this directly into your repository.
 
 ````markdown
 # 📈 Live Stock Analysis Agent & Agentic RAG
@@ -30,7 +28,7 @@ financial data.
 
 | **Live Dashboard & Financial Metrics** | **AI Analyst & Council Debate** |
 |:---:|:---:|
-| ![Dashboard Overview](WhatsApp%20Image%202025-11-29%20at%2011.53.33%20AM.jpeg) | ![AI Analysis](WhatsApp%20Image%202025-11-29%20at%2011.53.33%20AM%20(1).jpg) |
+| ![Dashboard Overview](dashboard.jpg) | ![AI Analysis](analysis.jpg) |
 
 ---
 
@@ -100,31 +98,47 @@ graph TD
 
 ## 4\. Workflows & Logic
 
-### 🔄 Data Ingestion Loop (The Background Worker)
+### 🔄 Data Ingestion & Signal Processing (The Background Worker)
 
-Every 5 minutes, the `rq_worker.py` executes this pipeline to ensure the dashboard
-and AI have the freshest data.
+Every 5 minutes, the `rq_worker.py` executes a comprehensive analysis pipeline.
+It calculates multiple technical factors in parallel before the Alert Engine
+evaluates them for trade signals.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Scheduled_Job: Every 5 Mins
+    [*] --> Scheduled_Job: Triggered every 5 Mins
     Scheduled_Job --> Ingestion: run ingestion_price.py
     
     state Ingestion {
-        Fetch_API --> Normalize_Data
-        Normalize_Data --> Save_to_TiDB
+        Fetch_OHLCV --> Validate_Data
+        Validate_Data --> Save_to_TiDB
     }
     
     Ingestion --> Indicators: run indicators.py
     state Indicators {
-        Calculate_RSI --> Calculate_MACD
-        Calculate_MACD --> Update_DB
+        state "Calculate Technicals" as Techs {
+            RSI
+            MACD
+            Bollinger_Bands
+            VWAP
+        }
+        Techs --> Update_Database: Write calculated values
     }
     
     Indicators --> Alert_Engine: run alert_engine.py
     state Alert_Engine {
-        Check_Thresholds --> |If Breach| Generate_Signal
-        Generate_Signal --> Save_Alert
+        Check_Technical_Rules --> Check_Volume_Anomalies
+        Check_Volume_Anomalies --> Check_News_Sentiment
+        
+        state "Evaluation Logic" as Eval {
+            If_RSI_Overbought_>_70
+            If_Price_Below_VWAP
+            If_Sentinel_Score_Negative
+        }
+        
+        Check_News_Sentiment --> Eval
+        Eval --> Generate_Signal: If Confluence Found
+        Generate_Signal --> Save_Alert: Push to TiDB & UI
     }
     
     Alert_Engine --> [*]
@@ -148,8 +162,8 @@ sequenceDiagram
     API->>RAG: Build Context(Query, Ticker)
     
     par Parallel Fetch
-        RAG->>TiDB: Get Latest Technicals (RSI/MACD)
-        RAG->>FAISS: Search Relevant News
+        RAG->>TiDB: Get Latest Technicals (RSI, MACD, BBands)
+        RAG->>FAISS: Search Relevant News & Sentiment
     end
     
     RAG-->>API: Return Structured Context
@@ -157,9 +171,9 @@ sequenceDiagram
     
     loop Debate Round
         Agent->>LLM: Prompt Persona (Risk Manager)
-        LLM-->>Agent: "Too risky, RSI is 80"
+        LLM-->>Agent: "Too risky, Price > Upper BBand"
         Agent->>LLM: Prompt Persona (Tech Analyst)
-        LLM-->>Agent: "Bullish trend strong"
+        LLM-->>Agent: "Strong momentum, VWAP is rising"
     end
     
     Agent-->>API: Final Verdict
@@ -212,7 +226,7 @@ services/
 │   └── backfill_alpaca.py    # "Time Machine": Fills historical gaps.
 │
 ├── 🧠 Analysis & Logic
-│   ├── indicators.py         # Math: Calculates RSI, MACD, Bollinger Bands.
+│   ├── indicators.py         # Math: Calculates RSI, MACD, Bollinger Bands, VWAP.
 │   ├── alert_engine.py       # Watchdog: Triggers alerts if signals > threshold.
 │   └── relationship_agent.py # Graph: Analyzes correlations between stocks.
 │
