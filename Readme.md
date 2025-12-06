@@ -1,13 +1,11 @@
-Here is the **final, complete `README.md`**.
+No problem. These are two easy fixes.
 
-It incorporates every fix we discussed:
+1.  **For the Images:** Markdown is strict about file extensions. `image.jpg` and `image.jpeg` are different files to a computer. I have updated the code below to use **`.jpeg`**.
+2.  **For the Graph:** Mermaid diagrams often fail to render if there isn't a **blank line** before and after the code block. I have added those spacing buffers to ensure GitHub detects it as a graph.
 
-1.  **Visuals:** Uses the simplified image names (`dashboard.jpg` / `analysis.jpg`).
-2.  **Architecture:** Includes the high-level Mermaid graph.
-3.  **Workflows:** Uses the **expanded** logic diagram showing all specific indicators (RSI, VWAP, BBands) and the detailed Alert Engine logic.
-4.  **Structure:** Includes the detailed breakdown of `app` vs `services`.
+### 📋 Copy This Entire Block (The Final Fix)
 
-You can copy-paste this directly into your repository.
+Overwrite your current `README.md` with this exact content.
 
 ````markdown
 # 📈 Live Stock Analysis Agent & Agentic RAG
@@ -28,7 +26,7 @@ financial data.
 
 | **Live Dashboard & Financial Metrics** | **AI Analyst & Council Debate** |
 |:---:|:---:|
-| ![Dashboard Overview](dashboard.jpg) | ![AI Analysis](analysis.jpg) |
+| ![Dashboard Overview](dashboard.jpeg) | ![AI Analysis](analysis.jpeg) |
 
 ---
 
