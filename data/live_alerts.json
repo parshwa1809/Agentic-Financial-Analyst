@@ -1,0 +1,96 @@
+{
+  "AAPL": {
+    "live": [
+      "RSI Overbought (83.4): Potential short-term correction risk.",
+      "Friday Trading Context: Potential for squaring positions or low liquidity near close.",
+      "High News Volume: 5 recent headlines detected."
+    ],
+    "live_indicators": {
+      "RSI_14": 83.41729267686577,
+      "MACD_12_26_9": 0.35186387412619524,
+      "MACDs_12_26_9": 0.251676387564955,
+      "MACDh_12_26_9": 0.10018748656124027,
+      "BBL_20_2.0": NaN,
+      "BBU_20_2.0": NaN,
+      "BBB_20_2.0": NaN,
+      "BBP_20_2.0": NaN
+    },
+    "historical": [
+      "Strong Relative Strength: Outperforming SPY (+0.84%) recently."
+    ],
+    "historical_indicators": {}
+  },
+  "AMZN": {
+    "live": [
+      "Friday Trading Context: Potential for squaring positions or low liquidity near close.",
+      "High News Volume: 5 recent headlines detected."
+    ],
+    "live_indicators": {
+      "RSI_14": 69.47835309265636,
+      "MACD_12_26_9": 0.20159408424785852,
+      "MACDs_12_26_9": 0.2035413859282366,
+      "MACDh_12_26_9": -0.0019473016803780718,
+      "BBL_20_2.0": NaN,
+      "BBU_20_2.0": NaN,
+      "BBB_20_2.0": NaN,
+      "BBP_20_2.0": NaN
+    },
+    "historical": [
+      "Strong Relative Strength: Outperforming SPY (+0.52%) recently."
+    ],
+    "historical_indicators": {}
+  },
+  "GOOGL": {
+    "live": [
+      "Friday Trading Context: Potential for squaring positions or low liquidity near close."
+    ],
+    "live_indicators": {
+      "RSI_14": 59.13676956860682,
+      "MACD_12_26_9": 0.17423975545290205,
+      "MACDs_12_26_9": 0.0875404050707716,
+      "MACDh_12_26_9": 0.08669935038213045,
+      "BBL_20_2.0": NaN,
+      "BBU_20_2.0": NaN,
+      "BBB_20_2.0": NaN,
+      "BBP_20_2.0": NaN
+    },
+    "historical": [],
+    "historical_indicators": {}
+  },
+  "MSFT": {
+    "live": [
+      "Friday Trading Context: Potential for squaring positions or low liquidity near close.",
+      "High News Volume: 7 recent headlines detected."
+    ],
+    "live_indicators": {
+      "RSI_14": 60.24872202144819,
+      "MACD_12_26_9": 0.1269590222526631,
+      "MACDs_12_26_9": 0.16598359518024366,
+      "MACDh_12_26_9": -0.039024572927580575,
+      "BBL_20_2.0": NaN,
+      "BBU_20_2.0": NaN,
+      "BBB_20_2.0": NaN,
+      "BBP_20_2.0": NaN
+    },
+    "historical": [],
+    "historical_indicators": {}
+  },
+  "TSLA": {
+    "live": [
+      "Friday Trading Context: Potential for squaring positions or low liquidity near close.",
+      "High News Volume: 9 recent headlines detected."
+    ],
+    "live_indicators": {
+      "RSI_14": 55.084470271900074,
+      "MACD_12_26_9": 0.158670071691688,
+      "MACDs_12_26_9": 0.15613391316587222,
+      "MACDh_12_26_9": 0.0025361585258157904,
+      "BBL_20_2.0": NaN,
+      "BBU_20_2.0": NaN,
+      "BBB_20_2.0": NaN,
+      "BBP_20_2.0": NaN
+    },
+    "historical": [],
+    "historical_indicators": {}
+  }
+}

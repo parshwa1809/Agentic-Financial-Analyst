@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  redis-queue:
+    image: redis:alpine
+    container_name: redis-queue
+    ports: ["6379:6379"]
+    restart: always
+    networks: [stock-net]
+
+  # --- BACKEND API (FastAPI) ---
+  api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: stock-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - .:/app
+    ports: ["8000:8000"]
+    env_file: .env
+    depends_on: [redis-queue]
+    networks: [stock-net]
+
+  # --- FRONTEND UI (React) ---
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: "http://api:8000/api"
+    container_name: stock-ui
+    ports: ["3000:80"] # Served on localhost:3000
+    environment:
+      - RUNTIME_API_BASE=http://api:8000/api
+    networks: [stock-net]
+
+  # --- BACKGROUND WORKERS ---
+  ingestion-price:
+    build: .
+    command: python -u services/ingestion_price.py
+    restart: always
+    env_file: .env
+    depends_on: [redis-queue]
+    networks: [stock-net]
+
+  db-writer:
+    build: .
+    command: python -u services/db_writer.py
+    restart: always
+    env_file: .env
+    depends_on: [redis-queue]
+    networks: [stock-net]
+
+  alert-engine:
+    build: .
+    command: python -u services/alert_engine.py
+    restart: always
+    env_file: .env
+    depends_on: [redis-queue]
+    networks: [stock-net]
+
+  ingestion-fund:
+    build: .
+    command: python -u services/ingestion_fund.py
+    restart: always
+    env_file: .env
+    networks: [stock-net]
+
+  news-fetcher:
+    build: .
+    command: python -u services/news_fetcher.py
+    restart: always
+    env_file: .env
+    networks: [stock-net]
+
+  relationship-agent:
+    build: .
+    command: python -u services/relationship_agent.py
+    restart: always
+    env_file: .env
+    depends_on: [redis-queue]
+    networks: [stock-net]
+    
+  db-pruner:
+    build: .
+    command: python -u services/db_pruner.py
+    restart: always
+    env_file: .env
+    networks: [stock-net]
+
+  # --- BACKGROUND WORKER FOR RQ ---
+  worker:
+    build: .
+    container_name: stock-worker
+    command: python -u services/rq_worker.py
+    restart: always
+    env_file: .env
+    depends_on: [redis-queue, api]
+    networks: [stock-net]
+
+networks:
+  stock-net:
+    driver: bridge

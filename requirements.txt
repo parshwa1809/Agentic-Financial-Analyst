@@ -1,0 +1,18 @@
+fastapi
+uvicorn[standard]
+pydantic
+pandas
+numpy<2.0.0
+sqlalchemy
+pymysql
+redis
+python-dotenv
+requests
+alpaca-trade-api>=3.2.0
+langchain
+langchain_ollama
+langgraph
+feedparser
+cryptography
+rq
+ yfinance
