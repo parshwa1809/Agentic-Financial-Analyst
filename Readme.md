@@ -1,3 +1,10 @@
+That clarifies everything\! **GitHub is case-sensitive.**
+
+To a computer, `dashboard.jpeg` and `Dashboard.jpeg` are completely different files. Since your files start with capital letters, the link in the README must match exactly.
+
+Here is the **corrected code** using `Dashboard.jpeg` and `Analysis.jpeg`.
+
+### 📋 Copy This Entire Block (Final Version)
 
 ````markdown
 # 📈 Live Stock Analysis Agent & Agentic RAG
