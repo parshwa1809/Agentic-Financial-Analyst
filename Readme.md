@@ -45,14 +45,12 @@ graph TD
 
     subgraph Data_Layer [Storage & External]
         TiDB[(TiDB Cloud MySQL)]
-        FAISS[(Local Vector DB)]
         Ollama[Ollama / Local LLM]
         Alpaca[Alpaca / Yahoo API]
     end
 
     UI -->|HTTP Requests| API
-    API -->|Read Data| TiDB
-    API -->|RAG Search| FAISS
+    API -->|Read Data & Context| TiDB
     API -->|Chat Prompt| Ollama
     
     API -.->|Schedule Job| Redis
@@ -60,7 +58,6 @@ graph TD
     
     Worker -->|Fetch Data| Alpaca
     Worker -->|Write Data| TiDB
-    Worker -->|Write Embeddings| FAISS
 ````
 
 ### 🟢 Layer 1: The Brain (API & AI)
@@ -304,3 +301,5 @@ docker-compose up --build
 
 ```
 ```
+
+
