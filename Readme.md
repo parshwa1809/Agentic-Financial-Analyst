@@ -1,5 +1,5 @@
 ````markdown
-# 📈 Live Stock Analysis Agent & Agentic RAG
+## 📈 Live Stock Analysis Agent & Agentic RAG
 
 ## 1. Project Objective
 
