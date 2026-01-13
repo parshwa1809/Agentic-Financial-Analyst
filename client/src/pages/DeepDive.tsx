@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { ArrowRightLeft } from 'lucide-react';
+import { ArrowRightLeft, Swords } from 'lucide-react';
 
 interface Ticker {
   symbol: string;
   name: string;
 }
 
+// Updated interface to include COMPETITOR
 interface ChainLink {
-  type: 'SUPPLIER' | 'CUSTOMER';
+  type: 'SUPPLIER' | 'CUSTOMER' | 'COMPETITOR';
   target: string;
 }
 
@@ -66,10 +67,10 @@ export default function DeepDive() {
       : 'text-[hsl(var(--success))]';
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="max-w-[1600px] mx-auto">
       <div className="page-title text-foreground mb-6">🔗 Deep Dive</div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {/* Left Control Panel */}
         <div className="md:col-span-1 space-y-6">
           <div className="bg-card p-6 rounded-xl border border-border">
@@ -105,45 +106,66 @@ export default function DeepDive() {
           </div>
         </div>
 
-        {/* Right Supply Chain Map Panel */}
-        <div className="md:col-span-2">
+        {/* Right Supply Chain Map Panel (3 COLUMNS NOW) */}
+        <div className="md:col-span-3">
           <div className="bg-card p-6 rounded-xl border border-border">
             <h3 className="text-xl font-bold text-foreground mb-4">⛓️ Supply Chain Map for {ticker}</h3>
             
             {loading && <div className="text-center text-muted-foreground py-10">Loading supply chain data...</div>}
             
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
+              
+              {/* 1. SUPPLIERS */}
               <div className="bg-background/50 p-4 rounded-xl border border-border">
                 <h4 className="text-lg font-bold text-[hsl(var(--success))] mb-3 border-b border-border pb-2">Incoming (Suppliers)</h4>
-                <div className="space-y-3 scroll-panel overflow-y-auto" style={{maxHeight: '350px'}}>
+                <div className="space-y-3 scroll-panel overflow-y-auto" style={{maxHeight: '450px'}}>
                   {chain.links.filter(l => l.type === 'SUPPLIER').map((l, i) => (
-                    <div key={i} className="flex items-center justify-between bg-muted p-3 rounded border border-border">
+                    <div key={i} className="flex items-center justify-between bg-muted p-3 rounded border border-border hover:bg-card transition-colors">
                       <span className="font-bold text-foreground">{l.target}</span>
                       <ArrowRightLeft size={16} className="text-muted-foreground mx-2" />
-                      <span className="text-sm text-muted-foreground">Supplies {ticker}</span>
+                      <span className="text-xs text-muted-foreground uppercase">Supplies</span>
                     </div>
                   ))}
                   {chain.links.filter(l => l.type === 'SUPPLIER').length === 0 && !loading && 
-                    <p className="text-muted-foreground text-center">No supplier data found.</p>
+                    <p className="text-muted-foreground text-center italic text-sm py-4">No data found.</p>
                   }
                 </div>
               </div>
 
+              {/* 2. COMPETITORS */}
+              <div className="bg-background/50 p-4 rounded-xl border border-border">
+                <h4 className="text-lg font-bold text-[hsl(var(--warning))] mb-3 border-b border-border pb-2">Competitors (Rivals)</h4>
+                <div className="space-y-3 scroll-panel overflow-y-auto" style={{maxHeight: '450px'}}>
+                  {chain.links.filter(l => l.type === 'COMPETITOR').map((l, i) => (
+                    <div key={i} className="flex items-center justify-between bg-muted p-3 rounded border border-border border-l-4 border-l-[hsl(var(--warning))] hover:bg-card transition-colors">
+                      <span className="font-bold text-foreground">{l.target}</span>
+                      <Swords size={16} className="text-[hsl(var(--warning))] mx-2" />
+                      <span className="text-xs text-muted-foreground uppercase">Rival</span>
+                    </div>
+                  ))}
+                  {chain.links.filter(l => l.type === 'COMPETITOR').length === 0 && !loading && 
+                    <p className="text-muted-foreground text-center italic text-sm py-4">No data found.</p>
+                  }
+                </div>
+              </div>
+
+              {/* 3. CUSTOMERS */}
               <div className="bg-background/50 p-4 rounded-xl border border-border">
                 <h4 className="text-lg font-bold text-primary mb-3 border-b border-border pb-2">Outgoing (Customers)</h4>
-                <div className="space-y-3 scroll-panel overflow-y-auto" style={{maxHeight: '350px'}}>
+                <div className="space-y-3 scroll-panel overflow-y-auto" style={{maxHeight: '450px'}}>
                   {chain.links.filter(l => l.type === 'CUSTOMER').map((l, i) => (
-                    <div key={i} className="flex items-center justify-between bg-muted p-3 rounded border border-border">
-                      <span className="text-sm text-muted-foreground">{ticker} Supplies</span>
+                    <div key={i} className="flex items-center justify-between bg-muted p-3 rounded border border-border hover:bg-card transition-colors">
+                      <span className="text-xs text-muted-foreground uppercase">Supplies</span>
                       <ArrowRightLeft size={16} className="text-muted-foreground mx-2" />
                       <span className="font-bold text-foreground">{l.target}</span>
                     </div>
                   ))}
                   {chain.links.filter(l => l.type === 'CUSTOMER').length === 0 && !loading && 
-                    <p className="text-muted-foreground text-center">No customer data found.</p>
+                    <p className="text-muted-foreground text-center italic text-sm py-4">No data found.</p>
                   }
                 </div>
               </div>
+
             </div>
           </div>
         </div>

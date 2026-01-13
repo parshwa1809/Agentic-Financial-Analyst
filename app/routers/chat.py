@@ -1,109 +1,125 @@
-from fastapi import APIRouter, HTTPException
+import os
+import json
+import requests
+from fastapi import APIRouter
 from pydantic import BaseModel
-# Wrap imports in try/except to prevent crashes if libraries are missing
-try:
-    from langchain_ollama import ChatOllama
-    from langchain_core.messages import SystemMessage, HumanMessage
-except ImportError:
-    print("⚠️ Warning: LangChain/Ollama libraries not found. Chat will be disabled.")
-    ChatOllama = None
-
+from typing import Optional
 from sqlalchemy import text
 from services.db_manager import get_engine
-import os
-import traceback
+from services.redis_manager import get_redis_client
 
 router = APIRouter()
 engine = get_engine()
+redis = get_redis_client()
 
-# Configuration
-LLM_MODEL = os.getenv("OLLAMA_MODEL_NAME", "phi3:mini")
-LLM_URL = os.getenv("OLLAMA_API_URL", "http://host.docker.internal:11434")
+# --- CONFIGURATION ---
+# Robust URL handling: Ensures we always hit the correct endpoint
+# This fixes the issue where the URL might be missing '/api/generate'
+BASE_OLLAMA_URL = os.getenv('OLLAMA_API_URL', 'http://host.docker.internal:11434')
+if not BASE_OLLAMA_URL.endswith('/api/generate'):
+    if BASE_OLLAMA_URL.endswith('/'):
+        BASE_OLLAMA_URL += 'api/generate'
+    else:
+        BASE_OLLAMA_URL += '/api/generate'
 
-# Global variable for lazy loading
-_llm_instance = None
-
-def get_llm():
-    """Lazy load the LLM connection to prevent startup crashes."""
-    global _llm_instance
-    if _llm_instance is None:
-        if ChatOllama is None:
-            raise Exception("LangChain library missing.")
-        print(f"🔌 Connecting to Ollama at {LLM_URL}...")
-        _llm_instance = ChatOllama(base_url=LLM_URL, model=LLM_MODEL, temperature=0.3)
-    return _llm_instance
+MODEL = os.getenv('OLLAMA_MODEL_NAME', 'llama3')
 
 class ChatRequest(BaseModel):
     message: str
-    ticker: str = None
+    ticker: Optional[str] = None
+    session_id: str = 'default'
 
-def get_stock_context(ticker: str):
-    if not ticker: return "No active ticker selected. Answer general questions."
-    
+# --- CONTEXT BUILDERS ---
+
+def get_supply_chain_context(ticker: str):
+    """Fetches discovered supply chain partners from the database."""
+    if not ticker: return ''
     try:
         with engine.connect() as conn:
-            # 1. Get Latest Price
-            price_row = conn.execute(text(
-                "SELECT close, volume FROM market_data WHERE ticker=:t ORDER BY timestamp DESC LIMIT 1"
-            ), {"t": ticker}).fetchone()
+            # Fetch top 8 partners sorted by confidence
+            query = text("""
+                SELECT partner_ticker, relationship, reason 
+                FROM supply_chain 
+                WHERE ticker = :t 
+                ORDER BY confidence DESC LIMIT 8
+            """)
+            rows = conn.execute(query, {'t': ticker}).fetchall()
             
-            # 2. Get Recent News
-            news_rows = conn.execute(text(
-                "SELECT headline, sentiment_score FROM news_articles WHERE ticker=:t ORDER BY published_at DESC LIMIT 2"
-            ), {"t": ticker}).fetchall()
+            if not rows: return 'No specific supply chain data found in memory.'
             
-            # 3. Get Risk Score
-            risk_row = conn.execute(text(
-                "SELECT AVG(risk_score) FROM political_risk WHERE ticker=:t"
-            ), {"t": ticker}).fetchone()
-
-        context = f"REAL-TIME DATA FOR {ticker}:\n"
-        if price_row:
-            context += f"- Price: ${price_row[0]:.2f} | Vol: {price_row[1]}\n"
-        else:
-            context += "- Price: Data Unavailable\n"
-        
-        if risk_row and risk_row[0] is not None:
-            context += f"- Risk Score: {float(risk_row[0]):.1f}/100\n"
+            text_list = []
+            for r in rows:
+                # Format: "- TSM (SUPPLIER): Manufactures chips"
+                text_list.append(f'- {r[0]} ({r[1]}): {r[2]}')
             
-        if news_rows:
-            context += "- Headlines:\n"
-            for n in news_rows:
-                context += f"  * {n[0]} (Score: {n[1]})\n"
-        return context
-
+            return 'SUPPLY CHAIN NETWORK:\n' + '\n'.join(text_list)
     except Exception as e:
-        print(f"⚠️ Context Fetch Error: {e}")
-        return "Market data unavailable."
+        print(f'Supply Chain Context Error: {e}')
+        return ''
 
-@router.post("/ask")
+def get_stock_context(ticker: str):
+    """Fetches real-time price and latest news."""
+    if not ticker: return 'No active ticker. Answer general questions.'
+    try:
+        with engine.connect() as conn:
+            price = conn.execute(text('SELECT close FROM market_data WHERE ticker=:t ORDER BY timestamp DESC LIMIT 1'), {'t': ticker}).fetchone()
+            news = conn.execute(text('SELECT headline FROM news_articles WHERE ticker=:t ORDER BY published_at DESC LIMIT 1'), {'t': ticker}).fetchone()
+
+        context = f'REAL-TIME DATA FOR {ticker}:\n'
+        context += f'- Price: ${price[0]:.2f}\n' if price else '- Price: N/A\n'
+        context += f'- Latest Headline: {news[0]}\n' if news else ''
+        return context
+    except Exception:
+        return 'Market data currently unavailable.'
+
+# --- MAIN ENDPOINT ---
+
+@router.post('/ask')
 def chat(request: ChatRequest):
     try:
-        # 1. Get LLM (Lazy Load)
-        llm = get_llm()
+        # 1. Gather Context
+        data_context = get_stock_context(request.ticker)
+        sc_context = get_supply_chain_context(request.ticker)
         
-        # 2. Build Context
-        context_data = get_stock_context(request.ticker)
+        # 2. Build the System Prompt
+        # We inject the retrieved supply chain data directly into the prompt
+        system_prompt = f"""
+        You are an elite financial analyst AI. 
         
-        # 3. Define Prompt
-        system_prompt = (
-            "You are a helpful Financial Analyst AI. "
-            "Use the provided DATA CONTEXT to answer. "
-            "If the user asks about price/news/risk, quote the context. "
-            "Keep answers concise (under 3 sentences)."
-        )
+        [MARKET DATA]
+        {data_context}
         
-        user_prompt = f"DATA CONTEXT:\n{context_data}\n\nUSER QUESTION:\n{request.message}"
+        [SUPPLY CHAIN INTELLIGENCE]
+        {sc_context}
         
-        # 4. Invoke
-        response = llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt)
-        ])
+        [USER QUESTION]
+        {request.message}
         
-        return {"response": response.content}
+        INSTRUCTIONS:
+        1. Use the 'Supply Chain Intelligence' above to answer questions about suppliers or risks.
+        2. If the data lists a partner (e.g. TSM), explicitly mention them.
+        3. Be concise, professional, and data-driven.
+        """
+
+        # 3. Call Ollama Directly
+        payload = {
+            'model': MODEL,
+            'prompt': system_prompt,
+            'stream': False
+        }
+        
+        print(f'Sending Request to: {BASE_OLLAMA_URL} for {request.ticker}')
+        
+        # High timeout to give the LLM time to think
+        res = requests.post(BASE_OLLAMA_URL, json=payload, timeout=90)
+        
+        if res.status_code == 200:
+            # Parse the response (Ollama returns JSON)
+            return {'response': res.json().get('response', '')}
+        else:
+            print(f'Ollama Error: {res.text}')
+            return {'response': f'My internal brain returned an error: {res.status_code}'}
 
     except Exception as e:
-        print(f"❌ CHAT ERROR: {e}")
-        traceback.print_exc()
-        return {"response": "I am currently offline or cannot connect to the brain. Please check the server logs."}
+        print(f'❌ CHAT FATAL ERROR: {e}')
+        return {'response': 'I encountered an internal error processing that request. Please check the server logs.'}

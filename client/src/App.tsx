@@ -19,16 +19,17 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Layout>
-          <Routes>
+        <Routes>
+          {/* FIX: Layout is now a Parent Route, not a Wrapper */}
+          <Route element={<Layout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/watchlist" element={<Watchlist />} />
             <Route path="/chat" element={<Chat />} />
-            <Route path="/deep-dive" element={<DeepDive />} />
+            <Route path="/deepdive" element={<DeepDive />} />
             <Route path="/gym" element={<Gym />} />
             <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Layout>
+          </Route>
+        </Routes>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

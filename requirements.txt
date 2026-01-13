@@ -15,4 +15,6 @@ langgraph
 feedparser
 cryptography
 rq
- yfinance
+yfinance
+duckduckgo-search==4.2.0
+requests==2.31.0

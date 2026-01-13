@@ -1,0 +1,8 @@
+version: 2
+authtoken: 36UvWOw0U0aH6aMA0AjzQy33PsX_6zRnSiXAoF8LPvqRwup6x
+
+tunnels:
+  # Single tunnel for the whole app
+  app:
+    addr: 80
+    proto: http

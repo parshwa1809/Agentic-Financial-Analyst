@@ -1,142 +1,148 @@
 import time
-import json
+import logging
+from datetime import datetime, timedelta
+from services.db_manager import execute_query, get_engine
 import pandas as pd
 import numpy as np
-import sys
-import os
 
-# --- FIX: Add Project Root to Path ---
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-# -------------------------------------
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("alert_engine")
 
-from services.redis_manager import get_redis_client
-from services.db_manager import get_engine, execute_query
-from services.indicators import calculate_rsi, calculate_bbands, calculate_vwap
-
-# Connect to Redis
-r = get_redis_client()
-engine = get_engine()
-
-# Configuration
-CONTEXT = os.getenv("CONTEXT_TICKERS", "SPY,^VIX").split(",")
-
-def get_window(ticker):
-    """Fetch the last 100 bars from Redis sliding window."""
+def check_supply_chain_contagion(ticker):
+    """
+    The 'Kill Switch': Checks if a key supplier/customer is crashing.
+    """
     try:
-        # Redis returns bytes, so we need to decode
-        raw = r.zrange(f"window:{ticker}", 0, -1)
-        if not raw: return None
+        # 1. Find partners (Suppliers/Customers)
+        # FIX: Table name 'supply_chain' (was supply_chain_links)
+        query = """
+            SELECT partner_ticker, relationship 
+            FROM supply_chain 
+            WHERE ticker = :t
+        """
+        partners = execute_query(query, {"t": ticker})
         
-        # Decode bytes to strings, then load JSON
-        data = [json.loads(x.decode('utf-8')) for x in raw]
-        df = pd.DataFrame(data)
-        
-        # Ensure numeric types
-        df['close'] = pd.to_numeric(df['close'])
-        df['volume'] = pd.to_numeric(df['volume'])
-        return df
-    except Exception as e:
-        print(f"⚠️ Error reading window for {ticker}: {e}")
-        return None
+        if not partners: return []
 
-def check_technical_signals(df, ticker):
-    """Check for RSI, Bollinger Bands, and Price Spikes."""
-    alerts = []
+        alerts = []
+        for p in partners:
+            partner_ticker = p[0]
+            relation = p[1]
+            
+            # 2. Check partner's performance today
+            # FIX: Table 'market_data' (was stock_prices)
+            price_query = """
+                SELECT close 
+                FROM market_data 
+                WHERE ticker = :t 
+                ORDER BY timestamp DESC LIMIT 2
+            """
+            prices = execute_query(price_query, {"t": partner_ticker})
+            
+            if prices and len(prices) >= 2:
+                current = prices[0][0]
+                prev = prices[1][0]
+                pct_change = ((current - prev) / prev) * 100
+                
+                # 3. TRIGGER: If a Supplier crashes > 3%, warn the user
+                if pct_change < -3.0:
+                    alerts.append({
+                        "type": "Supply Chain Risk",
+                        "severity": "high",
+                        "message": f"Contagion Warning: Key {relation} {partner_ticker} is down {pct_change:.1f}%. Monitor {ticker} impact."
+                    })
+        return alerts
+    except Exception as e:
+        logger.error(f"Error checking supply chain for {ticker}: {e}")
+        return []
+
+def check_sentiment_divergence(ticker, price_change):
+    """
+    The 'Bull Trap': Price is rising, but AI Sentiment is negative.
+    """
     try:
-        if len(df) < 20: return []
+        # Get average sentiment from news in last 24h
+        query = """
+            SELECT AVG(sentiment_score) as avg_sent 
+            FROM news_articles 
+            WHERE ticker = :t 
+            AND published_at >= NOW() - INTERVAL 1 DAY
+        """
+        result = execute_query(query, {"t": ticker})
         
-        current_price = df['close'].iloc[-1]
-        prev_price = df['close'].iloc[-2]
+        avg_sentiment = result[0][0] if result and result[0][0] else 0
         
-        # 1. RSI Logic
-        rsi = calculate_rsi(df['close'], 14).iloc[-1]
-        if rsi < 30:
-            alerts.append(f"Technical: RSI Oversold ({rsi:.1f}) - Potential Buy")
-        elif rsi > 70:
-            alerts.append(f"Technical: RSI Overbought ({rsi:.1f}) - Potential Sell")
-            
-        # 2. Bollinger Bands Logic
-        upper, sma, lower = calculate_bbands(df['close'])
-        if current_price < lower.iloc[-1]:
-            alerts.append(f"Technical: Price broke below Lower Bollinger Band (${current_price:.2f})")
-        elif current_price > upper.iloc[-1]:
-            alerts.append(f"Technical: Price broke above Upper Bollinger Band (${current_price:.2f})")
-            
-        # 3. Sudden Price Spike (> 2% in 5 mins)
-        lookback_price = df['close'].iloc[-5] if len(df) >= 5 else prev_price
-        pct_change = ((current_price - lookback_price) / lookback_price) * 100
-        
-        if pct_change > 2.0:
-            alerts.append(f"Volatility: 🚀 Sudden Price Spike (+{pct_change:.2f}%)")
-        elif pct_change < -2.0:
-            alerts.append(f"Volatility: 🔻 Sudden Price Drop ({pct_change:.2f}%)")
-            
+        # TRIGGER: Price Up (>1%) AND Sentiment Bad (<-0.2)
+        if price_change > 1.0 and avg_sentiment < -0.2:
+            return [{
+                "type": "Sentiment Divergence",
+                "severity": "medium",
+                "message": f"Bull Trap Warning: {ticker} price rising (+{price_change:.1f}%) but AI sentiment is negative ({avg_sentiment:.2f})."
+            }]
+        return []
     except Exception as e:
-        print(f"Tech Check Error {ticker}: {e}")
-        
-    return alerts
+        logger.error(f"Error checking sentiment for {ticker}: {e}")
+        return []
 
-def check_volume_signals(df, ticker):
-    """Check for unusual volume spikes."""
-    alerts = []
-    try:
-        if len(df) < 20: return []
+def generate_alerts():
+    """Main loop to check all active tickers."""
+    logger.info("⚡ Alert Engine Cycle Started...")
+    
+    # FIX: Table 'tickers' (was assets)
+    rows = execute_query("SELECT symbol FROM tickers WHERE is_active=1")
+    if not rows: return
+
+    for row in rows:
+        t = row[0] 
         
-        current_vol = df['volume'].iloc[-1]
-        avg_vol = df['volume'].rolling(20).mean().iloc[-1]
+        # Get recent price data
+        # FIX: Table 'market_data' (was stock_prices)
+        prices = execute_query(
+            "SELECT close FROM market_data WHERE ticker = :t ORDER BY timestamp DESC LIMIT 14", 
+            {"t": t}
+        )
         
-        if avg_vol > 0 and current_vol > (avg_vol * 3):
-            alerts.append(f"Volume: 📢 Massive Volume Spike ({int(current_vol)} vs Avg {int(avg_vol)})")
-        elif avg_vol > 0 and current_vol > (avg_vol * 2):
-            alerts.append(f"Volume: Unusual Volume Detected (2x Average)")
+        if not prices or len(prices) < 2:
+            continue
             
-    except Exception as e:
-        print(f"Vol Check Error {ticker}: {e}")
+        current_price = prices[0][0]
+        prev_price = prices[1][0]
+        pct_change = ((current_price - prev_price) / prev_price) * 100
         
-    return alerts
+        new_alerts = []
+        
+        # --- 1. Technical Alerts (Placeholder for RSI logic) ---
+        if pct_change > 5.0:
+             new_alerts.append({"type": "Price Spike", "severity": "low", "message": f"{t} is up {pct_change:.1f}% in short term."})
 
-def process_alerts():
-    print("🚨 Alert Engine Active... Monitoring Redis Windows")
-    while True:
-        try:
-            # 1. Find all active tickers with data in Redis
-            keys = r.keys("window:*")
+        # --- 2. NEW: Supply Chain Contagion ---
+        new_alerts.extend(check_supply_chain_contagion(t))
+        
+        # --- 3. NEW: Sentiment Divergence ---
+        new_alerts.extend(check_sentiment_divergence(t, pct_change))
+        
+        # Save Alerts to DB
+        for alert in new_alerts:
+            # Check for duplicates in last 10 mins
+            # FIX: Table 'active_alerts' (was alerts)
+            dup_check = execute_query("""
+                SELECT id FROM active_alerts 
+                WHERE ticker=:t AND message=:m 
+                AND created_at >= NOW() - INTERVAL 10 MINUTE
+            """, {"t": t, "m": alert['message']})
             
-            for key in keys:
-                ticker = key.decode('utf-8').split(":")[1]
-                
-                # Skip context tickers if needed, or process them too
-                if ticker in CONTEXT: continue
-
-                df = get_window(ticker)
-                if df is None or df.empty: continue
-                
-                # 2. Run Checks
-                alerts = []
-                alerts.extend(check_technical_signals(df, ticker))
-                alerts.extend(check_volume_signals(df, ticker))
-                
-                # 3. Save to Database
-                for msg in alerts:
-                    print(f"🔔 ALERT {ticker}: {msg}")
-                    try:
-                        execute_query(
-                            "INSERT INTO active_alerts (ticker, message, created_at) VALUES (:t, :m, NOW())", 
-                            {"t": ticker, "m": msg}
-                        )
-                        # Optional: Sleep briefly to avoid spamming duplicate alerts instantly
-                        # A better deduplication strategy would be checking DB for recent similar alerts
-                    except Exception as db_err:
-                        print(f"❌ DB Error saving alert: {db_err}")
-
-        except Exception as e:
-            print(f"❌ Main Loop Error: {e}")
-        
-        time.sleep(5) # Check every 5 seconds
+            if not dup_check:
+                execute_query("""
+                    INSERT INTO active_alerts (ticker, message, created_at)
+                    VALUES (:t, :m, NOW())
+                """, {"t": t, "m": alert['message']})
+                logger.info(f"🚨 ALERT GENERATED: {t} - {alert['type']}")
 
 if __name__ == "__main__":
-    # Wait for DB/Redis to be ready
-    time.sleep(10)
-    process_alerts()
+    while True:
+        try:
+            generate_alerts()
+        except Exception as e:
+            logger.error(f"Cycle crashed: {e}")
+        time.sleep(60)

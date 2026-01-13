@@ -1,79 +1,91 @@
-import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, List, MessageSquare, Network, Dumbbell, Menu, X, Rocket } from 'lucide-react';
+import React, { useState } from 'react';
+import { Outlet, Link, useLocation } from 'react-router-dom';
+import { 
+  LayoutDashboard, 
+  BrainCircuit, 
+  List, 
+  Dumbbell, 
+  Menu, 
+  X, 
+  Rocket 
+} from 'lucide-react';
 
-interface SidebarItemProps {
-  to: string;
-  icon: React.ElementType;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}
-
-const SidebarItem = ({ to, icon: Icon, label, active, onClick }: SidebarItemProps) => (
-  <Link 
-    to={to} 
-    onClick={onClick}
-    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-      active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-    }`}
-  >
-    <Icon size={18} />
-    <span className="font-medium">{label}</span>
-  </Link>
-);
-
-interface LayoutProps {
-  children: React.ReactNode;
-}
-
-export default function Layout({ children }: LayoutProps) {
+const Layout = () => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const location = useLocation();
-  const [open, setOpen] = useState(false);
 
-  const close = () => setOpen(false);
-  const toggle = () => setOpen(v => !v);
+  const menuItems = [
+    { icon: LayoutDashboard, label: 'Live Monitor', path: '/' },
+    { icon: BrainCircuit, label: 'Deep Dive', path: '/deepdive' }, // Renamed
+    // Analyst Chat removed (it's on the dashboard now)
+    { icon: List, label: 'Watchlist', path: '/watchlist' },
+    { icon: Dumbbell, label: 'Trading Gym', path: '/gym' },
+  ];
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Top navbar */}
-      <div className="w-full bg-[hsl(222,47%,5%)] border-b border-border fixed top-0 left-0 z-50 h-[60px]">
-        <div className="h-full flex items-center justify-center relative">
-          <button onClick={toggle} className="absolute left-4 top-1/2 -translate-y-1/2 text-foreground p-2 hover:bg-muted rounded-lg transition-colors">
-            {open ? <X /> : <Menu />}
+    <div className="flex h-screen bg-gray-900 text-gray-100 font-sans overflow-hidden">
+      {/* Sidebar */}
+      <aside 
+        className={`${
+          isSidebarOpen ? 'w-64' : 'w-20'
+        } bg-gray-800 border-r border-gray-700 transition-all duration-300 flex flex-col relative z-20`}
+      >
+        <div className="p-4 flex items-center justify-between">
+          <div className={`flex items-center gap-2 ${!isSidebarOpen && 'hidden'}`}>
+            <Rocket className="w-6 h-6 text-blue-500" />
+            <span className="font-bold text-xl tracking-tight">AI Stock Agent</span>
+          </div>
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-1.5 hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <div className="text-foreground font-bold text-xl flex items-center gap-3">
-            <Rocket size={20} className="text-primary" />
-            <span>AI Stock Agent</span>
-          </div>
-        </div>
-      </div>
-      
-      {/* Accent line */}
-      <div className="fixed top-[60px] left-0 right-0 z-40 h-1 bg-primary/20" />
-
-      <div className="flex pt-[64px]">
-        {/* Offcanvas Backdrop */}
-        {open && <div className="offcanvas-backdrop" onClick={close} />}
-        
-        {/* Sidebar */}
-        <div className={`fixed inset-y-0 left-0 z-40 w-64 transform bg-card border-r border-border transition-transform duration-300 ${open ? 'translate-x-0' : '-translate-x-full'}`}>
-          <div className="p-4 pt-20">
-            <h3 className="text-lg text-foreground font-semibold mb-4 border-b border-border pb-2">Menu</h3>
-            <nav className="flex flex-col gap-2">
-              <SidebarItem to="/" icon={LayoutDashboard} label="Live Monitor" active={location.pathname === '/'} onClick={close} />
-              <SidebarItem to="/watchlist" icon={List} label="Watchlist" active={location.pathname === '/watchlist'} onClick={close} />
-              <SidebarItem to="/deep-dive" icon={Network} label="Deep Dive" active={location.pathname === '/deep-dive'} onClick={close} />
-              <SidebarItem to="/gym" icon={Dumbbell} label="Trading Gym" active={location.pathname === '/gym'} onClick={close} />
-            </nav>
-          </div>
         </div>
 
-        {/* Main content area */}
-        <main className="flex-1 p-4 md:p-6 min-h-[calc(100vh-64px)]">
-          {children}
-        </main>
-      </div>
+        <nav className="flex-1 px-3 py-4 space-y-2">
+          {menuItems.map((item) => {
+            const isActive = location.pathname === item.path;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${
+                  isActive 
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
+                    : 'text-gray-400 hover:bg-gray-700/50 hover:text-white'
+                }`}
+              >
+                <item.icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-white'}`} />
+                {isSidebarOpen && <span className="font-medium">{item.label}</span>}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* System Status Footer */}
+        <div className={`p-4 border-t border-gray-700 ${!isSidebarOpen && 'hidden'}`}>
+          <div className="flex items-center gap-3 bg-gray-900/50 p-3 rounded-lg border border-gray-700/50">
+            <div className="relative">
+              <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></div>
+              <div className="absolute inset-0 bg-emerald-500 rounded-full blur-sm opacity-50 animate-pulse"></div>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-emerald-400">System Online</p>
+              <p className="text-[10px] text-gray-500">Latency: 24ms</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 overflow-auto relative bg-gray-900">
+        <div className="max-w-[1600px] mx-auto p-6">
+          <Outlet />
+        </div>
+      </main>
     </div>
   );
-}
+};
+
+export default Layout;

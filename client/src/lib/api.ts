@@ -8,7 +8,7 @@ function resolveBase() {
     }
   } catch (e) {}
   const meta = (import.meta as any)?.env?.VITE_API_BASE;
-  return meta || 'http://localhost:8000/api';
+  return meta || '/api';
 }
 
 const API = axios.create({

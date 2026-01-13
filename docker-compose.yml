@@ -1,14 +1,27 @@
-version: '3.8'
-
 services:
+  # --- INFRASTRUCTURE ---
   redis-queue:
     image: redis:alpine
     container_name: redis-queue
-    ports: ["6379:6379"]
     restart: always
-    networks: [stock-net]
+    networks:
+      - stock-net
 
-  # --- BACKEND API (FastAPI) ---
+  # --- GATEWAY (NGINX) ---
+  gateway:
+    image: nginx:alpine
+    container_name: stock-gateway
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - frontend
+    networks:
+      - stock-net
+
+  # --- BACKEND API ---
   api:
     build: 
       context: .
@@ -17,86 +30,176 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - .:/app
-    ports: ["8000:8000"]
     env_file: .env
-    depends_on: [redis-queue]
-    networks: [stock-net]
+    depends_on:
+      - redis-queue
+    ports:
+      - "8000:8000"
+    expose:
+      - "8000"
+    environment:
+      - TZ=America/New_York
+      - OLLAMA_API_URL=http://host.docker.internal:11434/api/generate
+      - REDIS_HOST=redis-queue
+    networks:
+      - stock-net
 
-  # --- FRONTEND UI (React) ---
+  # --- FRONTEND UI ---
   frontend:
     build:
       context: ./client
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE: "http://api:8000/api"
+        VITE_API_BASE: "/api"
     container_name: stock-ui
-    ports: ["3000:80"] # Served on localhost:3000
     environment:
-      - RUNTIME_API_BASE=http://api:8000/api
-    networks: [stock-net]
+      - RUNTIME_API_BASE=/api
+    expose:
+      - "80"
+    networks:
+      - stock-net
 
   # --- BACKGROUND WORKERS ---
   ingestion-price:
     build: .
+    container_name: stock-ingestion-price
     command: python -u services/ingestion_price.py
     restart: always
+    volumes:
+      - .:/app
     env_file: .env
     depends_on: [redis-queue]
+    environment:
+      - TZ=America/New_York
     networks: [stock-net]
 
   db-writer:
     build: .
+    container_name: stock-db-writer
     command: python -u services/db_writer.py
     restart: always
+    volumes:
+      - .:/app
     env_file: .env
     depends_on: [redis-queue]
+    environment:
+      - TZ=America/New_York
     networks: [stock-net]
 
   alert-engine:
     build: .
+    container_name: stock-alert-engine
     command: python -u services/alert_engine.py
     restart: always
+    volumes:
+      - .:/app
     env_file: .env
     depends_on: [redis-queue]
+    environment:
+      - TZ=America/New_York
     networks: [stock-net]
 
   ingestion-fund:
     build: .
+    container_name: stock-ingestion-fund
     command: python -u services/ingestion_fund.py
     restart: always
+    volumes:
+      - .:/app
     env_file: .env
+    environment:
+      - TZ=America/New_York
     networks: [stock-net]
 
   news-fetcher:
     build: .
+    container_name: stock-news-fetcher
     command: python -u services/news_fetcher.py
     restart: always
+    volumes:
+      - .:/app
     env_file: .env
+    environment:
+      - TZ=America/New_York
     networks: [stock-net]
 
   relationship-agent:
     build: .
+    container_name: stock-relationship-agent
     command: python -u services/relationship_agent.py
     restart: always
+    volumes:
+      - .:/app
     env_file: .env
+    environment:
+      - PYTHONPATH=/app
+      - TZ=America/New_York
     depends_on: [redis-queue]
     networks: [stock-net]
     
-  db-pruner:
+  supply-chain-worker:
     build: .
-    command: python -u services/db_pruner.py
+    container_name: stock-supply-chain-worker
+    command: python -u -m services.seed_supply_chain
+    restart: always
+    volumes:
+      - .:/app
+    env_file: .env
+    environment:
+      - TZ=America/New_York
+      - OLLAMA_API_URL=http://host.docker.internal:11434
+    depends_on: 
+      - redis-queue
+      - api
+    networks: 
+      - stock-net
+      
+  council-worker:
+    build: .
+    container_name: stock-council-worker
+    command: python -u -m services.council_worker
     restart: always
     env_file: .env
+    volumes:
+      - .:/app
+    environment:
+      - TZ=America/New_York
+      - OLLAMA_API_URL=http://host.docker.internal:11434
+      - PYTHONPATH=/app
+    depends_on: 
+      - redis-queue
+      - api
+    networks: 
+      - stock-net
+
+  maintenance:
+    build: .
+    container_name: stock-maintenance
+    command: python -u services/maintenance_worker.py
+    restart: always
+    volumes:
+      - .:/app
+    env_file: .env
+    depends_on: [redis-queue, api]
+    environment:
+      - TZ=America/New_York
     networks: [stock-net]
 
-  # --- BACKGROUND WORKER FOR RQ ---
   worker:
     build: .
     container_name: stock-worker
     command: python -u services/rq_worker.py
     restart: always
     env_file: .env
-    depends_on: [redis-queue, api]
+    volumes:
+      - .:/app
+    depends_on: 
+      - redis-queue
+      - api
+    environment:
+      - TZ=America/New_York
+      - REDIS_HOST=redis-queue
+      - PYTHONPATH=/app
     networks: [stock-net]
 
 networks:
