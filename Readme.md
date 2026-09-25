@@ -308,7 +308,7 @@ The API container creates/migrates the database schema on startup (`scripts/setu
 
 ## 🔗 Project Resources
 
-  * **▶️ Live Demo:** [Watch on Google Drive](https://drive.google.com/file/d/17CM8klaQCYLM_1woCKoZp3vZIHidr8a6/view?usp=drive_link)
+  * **▶️ Live Demo:** [Watch the demo with voice-over (1:45)](docs/ai-stock-agent-demo-voiceover.mp4)
   * **✍️ Medium Article:** [Stop Staring at Charts: Building a Real-Time AI Financial Analyst](https://medium.com/@s.parshwa18/stop-staring-at-charts-building-a-real-time-ai-financial-analyst-with-rag-and-quadratic-context-4de44e67b286?postPublishedType=repub)
 
 <!-- end list -->
