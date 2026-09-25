@@ -1,15 +1,14 @@
 import os
-import redis
 import json
 import pandas as pd
 from sqlalchemy import text
 from services.db_manager import get_engine, execute_query
+from services.redis_manager import get_redis_client
 # NEW: Import the Aggregator to get text-based alerts
 from services.signal_aggregator import get_active_signals
 
-# Redis Setup
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
+# Redis Setup (shared client -> host 'redis-queue', the compose service name)
+redis_client = get_redis_client()
 engine = get_engine()
 
 def get_risk_verdict(score):
@@ -95,8 +94,11 @@ def get_or_compute_risk_score(ticker: str):
     cache_key = f"risk_score:{ticker}"
 
     # 1. Check Cache
-    cached = redis_client.get(cache_key)
-    if cached: return int(cached)
+    try:
+        cached = redis_client.get(cache_key)
+        if cached: return int(cached)
+    except Exception as e:
+        print(f"⚠️ Risk cache read failed: {e}")
 
     # 2. Get Component Scores
     
@@ -109,7 +111,11 @@ def get_or_compute_risk_score(ticker: str):
     except: news_score = 50
 
     # B. Technical Risk (Now uses Signal Aggregator)
-    tech_score = calculate_technical_risk(ticker)
+    try:
+        tech_score = calculate_technical_risk(ticker)
+    except Exception as e:
+        print(f"⚠️ Technical risk failed for {ticker}: {e}")
+        tech_score = 50
 
     # C. Supply Chain Risk
     supply_score = calculate_supply_chain_risk(ticker)
@@ -120,7 +126,10 @@ def get_or_compute_risk_score(ticker: str):
     final_score = int(final_score)
 
     # 4. Save & Return
-    redis_client.set(cache_key, final_score, ex=3600) # 1 hour cache
+    try:
+        redis_client.set(cache_key, final_score, ex=3600) # 1 hour cache
+    except Exception as e:
+        print(f"⚠️ Risk cache write failed: {e}")
     
     # Debug Logging
     print(f"📊 RISK CALC for {ticker}: News={news_score}, Tech={tech_score}, Supply={supply_score} -> FINAL={final_score}")

@@ -74,13 +74,17 @@ def clean_and_format_response(text):
     norm = {k.lower(): v for k, v in data.items()}
 
     # 1. EXTRACT CORE FIELDS
-    verdict = norm.get("verdict", norm.get("decision", "HOLD")).upper()
+    verdict = str(norm.get("verdict", norm.get("decision", "HOLD"))).strip().upper()
     if verdict not in ["BUY", "SELL", "HOLD"]: verdict = "HOLD"
     
     horizon = norm.get("horizon", norm.get("time_horizon", "Medium-term"))
     
-    conf = norm.get("confidence", 50)
+    try:
+        conf = float(str(norm.get("confidence", 50)).strip().rstrip("%"))
+    except (TypeError, ValueError):
+        conf = 50.0
     if conf > 1: conf = conf / 100.0
+    conf = max(0.0, min(1.0, conf))
 
     analysis = norm.get("analysis", norm.get("reasoning", "Analysis unavailable."))
     bull_case = norm.get("bull_case", "No bull case.")

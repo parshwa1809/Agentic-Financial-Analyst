@@ -9,7 +9,14 @@ import time
 import json
 import pandas as pd
 from services.redis_manager import get_redis_client
-from services.db_manager import get_engine
+from services.db_manager import get_engine, execute_many
+
+UPSERT_SQL = (
+    "INSERT INTO market_data (ticker, timestamp, open, high, low, close, volume) "
+    "VALUES (:ticker, :timestamp, :open, :high, :low, :close, :volume) "
+    "ON DUPLICATE KEY UPDATE open=VALUES(open), high=VALUES(high), low=VALUES(low), "
+    "close=VALUES(close), volume=VALUES(volume)"
+)
 
 r = get_redis_client()
 engine = get_engine()
@@ -46,8 +53,16 @@ def process_queue():
             df_sql['open'] = df['open']
             df_sql['high'] = df['high']
             df_sql['low'] = df['low']
-            
-            df_sql.to_sql('market_data', engine, if_exists='append', index=False)
+            # Store naive UTC timestamps (matches backfill) and drop in-batch duplicates
+            if df_sql['timestamp'].dt.tz is not None:
+                df_sql['timestamp'] = df_sql['timestamp'].dt.tz_convert('UTC').dt.tz_localize(None)
+            df_sql = df_sql.drop_duplicates(subset=['ticker', 'timestamp'], keep='last')
+            rows = [
+                {**r, 'timestamp': r['timestamp'].to_pydatetime(), 'volume': int(r['volume'])}
+                for r in df_sql.to_dict(orient='records')
+            ]
+            # Upsert so bars already written by a backfill don't fail the whole batch
+            execute_many(UPSERT_SQL, rows)
             print(f"✅ Saved {len(df)} bars")
         except Exception as e:
             print(f"❌ Write Error: {e}")

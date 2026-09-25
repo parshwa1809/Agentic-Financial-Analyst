@@ -73,7 +73,7 @@ def get_stats(ticker: str):
             for col, label, fmt in mappings:
                 val = row.get(col)
                 display_val = "N/A"
-                if val is not None:
+                if val is not None and not pd.isna(val):
                     try:
                         f_val = float(val)
                         if fmt == "currency": display_val = format_number(f_val)
@@ -119,7 +119,8 @@ def normalize_relationship(rel_type):
 
 # --- FIXED: SUPPLY CHAIN (Deduplicated & Cleaned) ---
 @router.get("/{ticker}/supply-chain")
-def get_supply_chain(ticker: str):
+def get_supply_chain(ticker: str, depth: int = 1):
+    """Relationship graph. depth=2 adds second-order links (partners of partners)."""
     ticker = ticker.upper()
     try:
         query = text("SELECT * FROM supply_chain WHERE ticker=:t")
@@ -147,9 +148,29 @@ def get_supply_chain(ticker: str):
             
             # 3. Deduplicate
             if partner not in seen_partners:
-                nodes.append({"id": partner, "type": display_rel})
+                nodes.append({"id": partner, "type": display_rel, "depth": 1})
                 seen_partners.add(partner)
-                links.append({"source": ticker, "target": partner, "type": display_rel})
-            
+                links.append({"source": ticker, "target": partner, "type": display_rel, "depth": 1})
+
+        if depth >= 2 and len(seen_partners) > 1:
+            first = [p for p in seen_partners if p != ticker]
+            placeholders = ", ".join(f":p{i}" for i in range(len(first)))
+            q2 = text(f"SELECT ticker, partner_ticker, relationship FROM supply_chain "
+                      f"WHERE ticker IN ({placeholders}) AND partner_ticker <> :t")
+            params = {f"p{i}": p for i, p in enumerate(first)}
+            params["t"] = ticker
+            df2 = pd.read_sql(q2, engine, params=params)
+            seen_links = set()
+            for _, row in df2.iterrows():
+                src, partner = row['ticker'], row['partner_ticker']
+                if not partner or str(partner).upper() in BLACKLIST or (src, partner) in seen_links:
+                    continue
+                seen_links.add((src, partner))
+                rel = normalize_relationship(row['relationship'])
+                if partner not in seen_partners:
+                    nodes.append({"id": partner, "type": rel, "depth": 2})
+                    seen_partners.add(partner)
+                links.append({"source": src, "target": partner, "type": rel, "depth": 2})
+
         return {"nodes": nodes, "links": links}
     except Exception: return {"nodes": [], "links": []}

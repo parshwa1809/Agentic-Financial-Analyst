@@ -1,0 +1,9 @@
+.git
+.env
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+client/node_modules
+client/dist
+cache
+*.jpeg

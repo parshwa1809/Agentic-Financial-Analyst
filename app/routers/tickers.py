@@ -27,8 +27,11 @@ def list_all_tickers():
 @router.get("/search")
 def search_tickers(q: str):
     try:
-        clean = q.replace("'", "").upper()
-        df = pd.read_sql(f"SELECT symbol, name, is_active FROM tickers WHERE symbol LIKE '%%{clean}%%' OR UPPER(name) LIKE '%%{clean}%%' LIMIT 10", engine)
+        pattern = f"%{q.strip().upper()}%"
+        df = pd.read_sql(
+            text("SELECT symbol, name, is_active FROM tickers WHERE symbol LIKE :p OR UPPER(name) LIKE :p LIMIT 10"),
+            engine, params={"p": pattern},
+        )
         return df.to_dict(orient="records")
     except: return []
 
@@ -50,18 +53,18 @@ def activate_ticker(symbol: str):
             val = result[0] if result else "NULL"
             print(f"   🧐 VERIFICATION: Database says {symbol} is_active = {val}", flush=True)
 
-        try:
-            from services.backfill_alpaca import backfill_tickers
-            from services.news_fetcher import fetch_news_for_symbols
-            from services.seed_supply_chain import discover_partners
-            
-            queue.enqueue(discover_partners, symbol, job_timeout='2m')
-            queue.enqueue(backfill_tickers, [symbol], days=30, timeframe='5Min', chunk_sleep=0.5, job_timeout='10m')
-            queue.enqueue(fetch_news_for_symbols, [symbol], job_timeout='2m')
-            
-            print(f"   🚀 Jobs Queued in Redis for {symbol}", flush=True)
-        except ImportError as e:
-            print(f"   ⚠️ Job Import Warning: {e}", flush=True)
+        # Queue background jobs independently so one failure doesn't block the others
+        jobs = [
+            ("services.backfill_alpaca.backfill_tickers", ([symbol],), {"days": 30, "timeframe": "5Min", "chunk_sleep": 0.5}, "10m"),
+            ("services.news_fetcher.fetch_news_for_symbols", ([symbol],), {}, "2m"),
+            ("services.seed_supply_chain.discover_partners", (symbol,), {}, "5m"),
+        ]
+        for func_path, args, kwargs, timeout in jobs:
+            try:
+                queue.enqueue(func_path, *args, job_timeout=timeout, **kwargs)
+                print(f"   🚀 Queued {func_path} for {symbol}", flush=True)
+            except Exception as e:
+                print(f"   ⚠️ Could not queue {func_path}: {e}", flush=True)
 
     except Exception as e:
         print(f"   ❌ CRITICAL ERROR: {e}", flush=True)

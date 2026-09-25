@@ -14,9 +14,13 @@ def get_engine():
     return engine
 
 def execute_query(query, params=None):
+    """Run a statement and commit. Returns a list of rows for SELECT-style
+    statements (so callers can iterate results), otherwise None."""
     with engine.connect() as conn:
-        conn.execute(text(query), params or {})
+        result = conn.execute(text(query), params or {})
+        rows = result.fetchall() if result.returns_rows else None
         conn.commit()
+        return rows
 
 
 def execute_many(query, params_list):

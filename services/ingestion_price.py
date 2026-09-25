@@ -137,22 +137,27 @@ def run_service():
         if not new_tickers:
             print("⚠️ No tickers found in Ecosystem! Waiting...")
         
-        # Restart stream ONLY if the list has changed
-        elif new_tickers != active_tickers:
-            print(f"🔄 Ecosystem Changed! Restarting Stream ({len(active_tickers)} -> {len(new_tickers)} tickers)")
-            
-            # Stop old stream
-            if current_stream:
-                try:
-                    asyncio.run_coroutine_threadsafe(current_stream.stop_ws(), current_stream.loop)
-                    # Give it a second to close cleanly
-                    time.sleep(1)
-                except Exception: pass
-            
-            # Start new stream
+        # First run (or the stream thread died): start ONE websocket connection.
+        # Alpaca's free IEX feed allows only a single concurrent connection, so we
+        # never open a second stream; we change subscriptions on the live one instead.
+        elif stream_thread is None or not stream_thread.is_alive():
+            print(f"🔌 Starting stream for {len(new_tickers)} tickers")
             stream_thread = threading.Thread(target=start_stream_in_thread, args=(new_tickers,), daemon=True)
             stream_thread.start()
             active_tickers = new_tickers
+
+        elif new_tickers != active_tickers:
+            added = sorted(set(new_tickers) - set(active_tickers))
+            removed = sorted(set(active_tickers) - set(new_tickers))
+            print(f"🔄 Ecosystem Changed! +{added} -{removed}")
+            try:
+                if added:
+                    current_stream.subscribe_bars(bar_handler, *added)
+                if removed:
+                    current_stream.unsubscribe_bars(*removed)
+                active_tickers = new_tickers
+            except Exception as e:
+                print(f"⚠️ Subscription update failed ({e}); will retry next cycle")
         
         # Check for new partners every 30 seconds
         time.sleep(30)

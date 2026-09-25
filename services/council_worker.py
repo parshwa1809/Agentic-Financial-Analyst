@@ -29,7 +29,7 @@ def needs_update(ticker):
             query = text("""
                 SELECT created_at FROM council_verdicts 
                 WHERE ticker = :t 
-                AND created_at >= datetime('now', '-1 hour') 
+                AND created_at >= NOW() - INTERVAL 1 HOUR 
                 ORDER BY created_at DESC LIMIT 1
             """)
             row = conn.execute(query, {"t": ticker}).fetchone()

@@ -1,51 +1,55 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/700.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 222 47% 7%;
-    --foreground: 214 32% 91%;
-    
-    --card: 217 33% 17%;
-    --card-foreground: 214 32% 91%;
-    
-    --popover: 217 33% 17%;
-    --popover-foreground: 214 32% 91%;
-    
-    --primary: 217 91% 60%;
+    --background: 230 35% 5%;
+    --foreground: 220 30% 94%;
+
+    --card: 229 28% 9%;
+    --card-foreground: 220 30% 94%;
+
+    --popover: 229 28% 10%;
+    --popover-foreground: 220 30% 94%;
+
+    --primary: 248 92% 68%;
     --primary-foreground: 0 0% 100%;
-    
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 214 32% 91%;
-    
-    --muted: 217 19% 27%;
-    --muted-foreground: 215 16% 47%;
-    
-    --accent: 217 33% 17%;
-    --accent-foreground: 214 32% 91%;
-    
-    --destructive: 0 84% 60%;
+
+    --secondary: 229 24% 14%;
+    --secondary-foreground: 220 30% 94%;
+
+    --muted: 229 22% 14%;
+    --muted-foreground: 224 14% 62%;
+
+    --accent: 229 24% 14%;
+    --accent-foreground: 220 30% 94%;
+
+    --destructive: 350 89% 62%;
     --destructive-foreground: 0 0% 100%;
-    
-    --border: 217 19% 27%;
-    --input: 217 19% 27%;
-    --ring: 217 91% 60%;
-    
-    --radius: 0.5rem;
-    
-    --success: 142 76% 36%;
-    --warning: 38 92% 50%;
-    --info: 199 89% 48%;
-    
-    --sidebar-background: 222 47% 7%;
-    --sidebar-foreground: 214 32% 91%;
-    --sidebar-primary: 217 91% 60%;
+
+    --border: 229 20% 17%;
+    --input: 229 20% 17%;
+    --ring: 248 92% 68%;
+
+    --radius: 0.85rem;
+
+    --success: 152 70% 46%;
+    --warning: 38 96% 58%;
+    --info: 190 92% 55%;
+
+    --sidebar-background: 230 35% 5%;
+    --sidebar-foreground: 220 30% 94%;
+    --sidebar-primary: 248 92% 68%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 214 32% 91%;
-    --sidebar-border: 217 19% 27%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-accent: 229 24% 14%;
+    --sidebar-accent-foreground: 220 30% 94%;
+    --sidebar-border: 229 20% 17%;
+    --sidebar-ring: 248 92% 68%;
   }
 }
 
@@ -56,7 +60,7 @@
   
   body {
     @apply bg-background text-foreground;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
 }
 
@@ -175,3 +179,47 @@
     cursor: not-allowed;
   }
 }
+
+
+/* ---------- polish layer ---------- */
+@layer base {
+  body {
+    background:
+      radial-gradient(1200px 600px at 85% -10%, hsl(248 92% 68% / 0.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, hsl(152 70% 46% / 0.07), transparent 60%),
+      hsl(var(--background));
+    -webkit-font-smoothing: antialiased;
+  }
+  .font-mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-2xl border border-border/70 bg-card/80 backdrop-blur-sm;
+    box-shadow: 0 1px 0 hsl(0 0% 100% / 0.03) inset, 0 20px 40px -24px hsl(230 60% 2% / 0.8);
+  }
+  .panel-head {
+    @apply flex items-center justify-between gap-2 px-4 pt-4 pb-3 text-sm font-semibold tracking-tight text-foreground;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-secondary/60 px-2.5 py-1 text-xs;
+  }
+  .glow-primary { box-shadow: 0 0 0 1px hsl(var(--primary) / 0.5), 0 8px 30px -6px hsl(var(--primary) / 0.55); }
+  .text-gradient {
+    background: linear-gradient(90deg, hsl(248 92% 74%), hsl(190 92% 62%));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .fade-up { animation: fade-up .5s cubic-bezier(.2,.8,.2,1) both; }
+  .flash-up { animation: flash-up 1s ease-out; }
+  .flash-down { animation: flash-down 1s ease-out; }
+  .flow { stroke-dasharray: 6 8; animation: flow 1.2s linear infinite; }
+  .marquee { animation: marquee 40s linear infinite; }
+  .typing-dot { animation: typing 1.2s infinite ease-in-out; }
+}
+
+@keyframes fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes flash-up { 0% { background: hsl(152 70% 46% / 0.25); } 100% { background: transparent; } }
+@keyframes flash-down { 0% { background: hsl(350 89% 62% / 0.25); } 100% { background: transparent; } }
+@keyframes flow { to { stroke-dashoffset: -28; } }
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes typing { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }

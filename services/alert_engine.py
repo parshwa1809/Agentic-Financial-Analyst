@@ -1,6 +1,14 @@
+import os
+import sys
 import time
 import logging
 from datetime import datetime, timedelta
+
+# Ensure project root is on sys.path (this file is run as `python services/alert_engine.py`)
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 from services.db_manager import execute_query, get_engine
 import pandas as pd
 import numpy as np

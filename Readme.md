@@ -1,5 +1,13 @@
 # 📈 Live Stock Analysis Agent & Agentic RAG
 
+[![AI Stock Agent demo — click to watch with voice-over](docs/ai-stock-agent-demo.gif)](docs/ai-stock-agent-demo-voiceover.mp4)
+
+▶️ **[Watch the full demo with voice-over (1:45)](docs/ai-stock-agent-demo-voiceover.mp4)**
+
+**Try the UI with no setup:** `cd client && npm install && npm run dev:demo` runs the whole
+frontend on a simulated market (no database, API keys, Redis or Ollama needed). Prices,
+news and AI answers in demo mode are synthetic.
+
 ## 1. Project Objective
 
 This project is a modern **Financial AI Platform** that acts as an autonomous 
@@ -15,9 +23,11 @@ financial data.
 
 ## 2. Project Preview
 
-| **Live Dashboard & Financial Metrics** | **AI Analyst & Council Debate** |
-|:---:|:---:|
-| ![Dashboard Overview](Dashboard.jpeg) | ![AI Analysis](Analysis.jpeg) |
+**[▶️ Watch the demo video (1:45, with voice-over)](docs/ai-stock-agent-demo-voiceover.mp4)** — live
+dashboard, AI analyst chat, the agent council's verdict, the supply-chain map with
+second-order relationships, and adding a ticker to the watchlist.
+
+> The video was recorded in demo mode (`npm run dev:demo`), so prices and news in it are simulated.
 
 ---
 
@@ -277,18 +287,22 @@ ALPACA_SECRET="your_secret"
 NEWS_API_KEY="your_key"
 
 # System
-OLLAMA_API_URL="[http://host.docker.internal:11434](http://host.docker.internal:11434)"
+OLLAMA_API_URL="http://host.docker.internal:11434"
 BACKFILL_ON_STARTUP=1
 ```
 
 **2. Launch System**
 
 ```bash
-docker-compose up --build
+ollama pull llama3        # model named in OLLAMA_MODEL_NAME
+docker compose up --build
 ```
 
-  * **Frontend:** `http://localhost:3000`
-  * **API:** `http://localhost:8000`
+The API container creates/migrates the database schema on startup (`scripts/setup_db.py`).
+
+  * **App (via nginx gateway):** `http://localhost`
+  * **API docs:** `http://localhost:8000/docs`
+  * **DB health check:** `http://localhost:8000/api/debug/db-status`
 
 -----
 

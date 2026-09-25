@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import council, chat, market, tickers
+from app.routers import council, chat, market, tickers, debug
 
 app = FastAPI(title="AI Stock Agent API")
 
@@ -27,7 +27,9 @@ app.include_router(council.router, prefix="/api/council", tags=["Council"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(market.router, prefix="/api/market", tags=["Market Data"])
 app.include_router(tickers.router, prefix="/api/tickers", tags=["Tickers"])
+app.include_router(debug.router, prefix="/api/debug", tags=["Debug"])
 
 @app.get("/health")
+@app.get("/api/health")
 def health_check():
     return {"status": "ok", "message": "System Operational"}

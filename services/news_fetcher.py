@@ -13,12 +13,14 @@ if ROOT not in sys.path:
 
 from services.db_manager import get_engine, execute_query
 from app.internal.prompts import RISK_EXTRACTION_PROMPT
+from services.signals.sentiment import analyze_sentiment
 
 engine = get_engine()
 SEEN_URLS = set()
 
 # LLM Config
-OLLAMA_URL = os.getenv("OLLAMA_API_URL", "http://host.docker.internal:11434") + "/api/generate"
+_OLLAMA_BASE = os.getenv("OLLAMA_API_URL", "http://host.docker.internal:11434").rstrip("/")
+OLLAMA_URL = _OLLAMA_BASE if _OLLAMA_BASE.endswith("/api/generate") else _OLLAMA_BASE + "/api/generate"
 MODEL = os.getenv("OLLAMA_MODEL_NAME", "phi3:mini")
 
 def analyze_risk_with_llm(headline):
@@ -71,7 +73,7 @@ def process_feed_entry(entry, tickers, ticker_names):
 
     # 1. Simple Sentiment (Fast)
     # (You can keep your existing sentiment.py import here if desired)
-    sentiment_score = 0 
+    sentiment_score = analyze_sentiment(title)
     
     # 2. Advanced Risk Analysis (Slow/Smart)
     risk_score, risk_cat = analyze_risk_with_llm(title)
@@ -93,17 +95,10 @@ def process_feed_entry(entry, tickers, ticker_names):
                 )
         except: pass
 
-def fetch_rss():
-    """Main Loop Function."""
-    try:
-        tickers_df = pd.read_sql("SELECT symbol, name FROM tickers WHERE is_active=1", engine)
-        if tickers_df.empty: return
-        
-        tickers = tickers_df['symbol'].tolist()
-        ticker_names = {row['symbol']: str(row['name']) for _, row in tickers_df.iterrows()}
-        
-        # Query Construction
-        chunk = tickers[:30] 
+def _fetch_for(tickers, ticker_names):
+    """Query Google News RSS for a list of tickers (30 per request)."""
+    for i in range(0, len(tickers), 30):
+        chunk = tickers[i:i + 30]
         clean = [t.replace('/', '-') for t in chunk]
         query = "%20OR%20".join(clean)
         context = "(stock%20OR%20market%20OR%20finance)"
@@ -112,6 +107,29 @@ def fetch_rss():
         feed = feedparser.parse(url)
         for entry in feed.entries:
             process_feed_entry(entry, chunk, ticker_names)
+
+
+def fetch_news_for_symbols(symbols):
+    """RQ job: fetch news immediately for newly activated tickers."""
+    try:
+        symbols = [s.upper() for s in symbols]
+        df = pd.read_sql("SELECT symbol, name FROM tickers", engine)
+        names = {row['symbol']: str(row['name']) for _, row in df.iterrows() if row['symbol'] in symbols}
+        _fetch_for(symbols, names)
+        print(f"📰 News fetched for {symbols}")
+    except Exception as e:
+        print(f"News fetch error for {symbols}: {e}")
+
+
+def fetch_rss():
+    """Main Loop Function."""
+    try:
+        tickers_df = pd.read_sql("SELECT symbol, name FROM tickers WHERE is_active=1", engine)
+        if tickers_df.empty: return
+        
+        tickers = tickers_df['symbol'].tolist()
+        ticker_names = {row['symbol']: str(row['name']) for _, row in tickers_df.iterrows()}
+        _fetch_for(tickers, ticker_names)
             
     except Exception as e:
         print(f"Global Fetch Error: {e}")

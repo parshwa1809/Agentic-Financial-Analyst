@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { IS_DEMO, demoAdapter } from './demo';
 
 // Resolve API base URL
 function resolveBase() {
@@ -13,6 +14,8 @@ function resolveBase() {
 
 const API = axios.create({
   baseURL: resolveBase(),
+  // `npm run dev:demo` swaps the network for a simulated market (no backend needed)
+  ...(IS_DEMO ? { adapter: demoAdapter } : {}),
 });
 
 export const api = {
@@ -24,8 +27,8 @@ export const api = {
     API.get(`/market/alerts${ticker ? `?ticker=${ticker}` : ''}`),
   getNews: (ticker?: string) => 
     API.get(`/market/news?ticker=${ticker || ''}`),
-  getSupplyChain: (ticker: string) => 
-    API.get(`/market/${ticker}/supply-chain`),
+  getSupplyChain: (ticker: string, depth = 1) =>
+    API.get(`/market/${ticker}/supply-chain?depth=${depth}`),
   
   getActiveTickers: () => 
     API.get('/tickers/active'),

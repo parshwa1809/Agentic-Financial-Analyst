@@ -101,7 +101,7 @@ def bars_to_dataframe(bars, symbol: str):
         v = b.get('v') or b.get('volume')
         rows.append({
             'ticker': symbol,
-            'timestamp': pd.to_datetime(ts),
+            'timestamp': pd.to_datetime(ts, utc=True).tz_convert(None),
             'open': o,
             'high': h,
             'low': l,
@@ -229,7 +229,12 @@ def backfill_tickers(tickers, days=30, timeframe='5Min', chunk_sleep=0.25):
                     yf_df = yf.download(symbol, start=yf_start, end=yf_end, interval=yf_interval, progress=False, threads=False)
 
                     if yf_df is not None and not yf_df.empty:
-                        yf_df.columns = [c.lower() for c in yf_df.columns]
+                        # Newer yfinance returns MultiIndex columns like ('Close', 'AAPL')
+                        if isinstance(yf_df.columns, pd.MultiIndex):
+                            yf_df.columns = yf_df.columns.get_level_values(0)
+                        yf_df.columns = [str(c).lower() for c in yf_df.columns]
+                        if yf_df.index.tz is not None:
+                            yf_df.index = yf_df.index.tz_convert('UTC').tz_localize(None)
                         bars = [{'t': pd.to_datetime(idx).to_pydatetime(), 'o': row['open'], 'h': row['high'], 'l': row['low'], 'c': row['close'], 'v': row['volume']} for idx, row in yf_df.iterrows()]
                         
                         if bars:
