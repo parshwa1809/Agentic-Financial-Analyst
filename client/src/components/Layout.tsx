@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Network, ListPlus, Dumbbell, PanelLeftClose, PanelLeftOpen, TrendingUp, TrendingDown } from 'lucide-react';
+import { LayoutDashboard, Network, ListPlus, PanelLeftClose, PanelLeftOpen, TrendingUp, TrendingDown, FileBarChart, PieChart, Bell, FlaskConical } from 'lucide-react';
 import { api } from '@/lib/api';
-import { IS_DEMO } from '@/lib/demo';
+import { STATUS_DOT } from '@/lib/format';
 
 interface TapeItem { symbol: string; price?: number; change?: number }
+interface AgentStatus { key: string; label: string; status: string; detail: string }
+interface SystemStatus { market: { open: boolean; now_et: string }; agents: AgentStatus[] }
 
-const AGENTS = [
-  { label: 'Price stream', detail: 'Alpaca · 1-min bars' },
-  { label: 'News + risk agent', detail: 'RSS → LLM scoring' },
-  { label: 'Supply-chain agent', detail: 'LangGraph' },
-  { label: 'Agent council', detail: 'Bull · Bear · Risk' },
+// Shown until the first /api/system/status answer arrives.
+const AGENTS: AgentStatus[] = [
+  { key: 'price', label: 'Price stream', status: 'unknown', detail: 'Alpaca · 1-min bars' },
+  { key: 'news', label: 'News feed', status: 'unknown', detail: 'publisher RSS' },
+  { key: 'supply', label: 'Supply-chain agent', status: 'unknown', detail: 'LangGraph' },
+  { key: 'council', label: 'Specialist briefings', status: 'unknown', detail: 'facts-only, cited' },
+  { key: 'rag', label: 'RAG indexer', status: 'unknown', detail: 'Ollama embeddings → TiDB' },
+  { key: 'events', label: 'Event engine', status: 'unknown', detail: 'moves · filings · earnings' },
 ];
 
 export const Logo = ({ size = 34 }: { size?: number }) => (
@@ -28,6 +33,7 @@ export const Logo = ({ size = 34 }: { size?: number }) => (
 const Layout = () => {
   const [open, setOpen] = useState(true);
   const [tape, setTape] = useState<TapeItem[]>([]);
+  const [sys, setSys] = useState<SystemStatus | null>(null);
   const location = useLocation();
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => { scroller.current?.scrollTo({ top: 0 }); }, [location.pathname]);
@@ -39,11 +45,38 @@ const Layout = () => {
     return () => clearInterval(id);
   }, []);
 
-  const menu = [
-    { icon: LayoutDashboard, label: 'Live Monitor', path: '/' },
+  useEffect(() => {
+    const load = () => api.getSystemStatus().then((r) => setSys(r.data)).catch(() => setSys(null));
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, []);
+  const agents = sys?.agents?.length ? sys.agents : AGENTS;
+
+  // Unread alerts badge + optional browser notification when new events arrive
+  const [unread, setUnread] = useState(0);
+  const lastId = useRef(0);
+  useEffect(() => {
+    const load = () => api.getUnreadCount().then((r) => {
+      setUnread(r.data.unread);
+      if (lastId.current && r.data.latest_id > lastId.current && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try { new Notification('Oracle: new alert', { body: `${r.data.unread} unread · open Alerts & brief` }); } catch { /* notifications unavailable */ }
+      }
+      lastId.current = r.data.latest_id;
+    }).catch(() => {});
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const menu: Array<{ icon: typeof LayoutDashboard; label: string; path: string; section?: string; soon?: boolean; badge?: number }> = [
+    { icon: LayoutDashboard, label: 'Live Monitor', path: '/', section: 'Monitor' },
+    { icon: Bell, label: 'Alerts & brief', path: '/alerts', badge: unread },
     { icon: Network, label: 'Deep Dive', path: '/deepdive' },
     { icon: ListPlus, label: 'Watchlist', path: '/watchlist' },
-    { icon: Dumbbell, label: 'Trading Gym', path: '/gym', soon: true },
+    { icon: FileBarChart, label: 'Company Report', path: '/report', section: 'Research' },
+    { icon: PieChart, label: 'Portfolio Lab', path: '/portfolio' },
+    { icon: FlaskConical, label: 'AI quality (evals)', path: '/evals', section: 'Trust' },
   ];
   const priced = tape.filter((t) => typeof t.price === 'number');
 
@@ -64,6 +97,8 @@ const Layout = () => {
           {menu.map((item) => {
             const active = location.pathname === item.path;
             return (
+              <div key={item.path}>
+              {open && item.section && <div className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">{item.section}</div>}
               <Link
                 key={item.path}
                 to={item.path}
@@ -75,29 +110,33 @@ const Layout = () => {
                 <item.icon className={`w-[18px] h-[18px] ${active ? 'text-primary' : ''}`} />
                 {open && <span className="font-medium flex-1">{item.label}</span>}
                 {open && item.soon && <span className="text-[10px] rounded-full bg-secondary px-2 py-0.5 text-muted-foreground">Soon</span>}
+                {!!item.badge && <span className="text-[10px] font-bold rounded-full bg-destructive text-white px-1.5 min-w-[18px] text-center">{item.badge > 99 ? '99+' : item.badge}</span>}
               </Link>
+              </div>
             );
           })}
         </nav>
 
         {open && (
           <div className="m-3 rounded-xl border border-border/70 bg-background/40 p-3">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Background agents</div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Background agents</span>
+              {sys && <span className={`text-[10px] rounded-full px-2 py-0.5 ${sys.market.open ? 'bg-success/15 text-success' : 'bg-secondary text-muted-foreground'}`}>{sys.market.open ? 'market open' : 'market closed'}</span>}
+            </div>
             <div className="space-y-2">
-              {AGENTS.map((a, i) => (
-                <div key={a.label} className="flex items-center gap-2.5">
-                  <span className="relative flex w-2 h-2">
-                    <span className="absolute inset-0 rounded-full bg-success animate-ping opacity-60" style={{ animationDelay: `${i * 0.35}s` }} />
-                    <span className="relative w-2 h-2 rounded-full bg-success" />
+              {agents.map((a, i) => (
+                <div key={a.key} className="flex items-start gap-2.5" title={`${a.label}: ${a.status} — ${a.detail}`}>
+                  <span className="relative flex w-2 h-2 mt-1 shrink-0">
+                    {a.status === 'ok' && <span className="absolute inset-0 rounded-full bg-success animate-ping opacity-60" style={{ animationDelay: `${i * 0.35}s` }} />}
+                    <span className={`relative w-2 h-2 rounded-full ${STATUS_DOT[a.status] || STATUS_DOT.unknown}`} />
                   </span>
-                  <div className="leading-tight">
+                  <div className="leading-tight min-w-0">
                     <div className="text-xs font-medium">{a.label}</div>
-                    <div className="text-[10px] text-muted-foreground">{a.detail}</div>
+                    <div className="text-[10px] text-muted-foreground line-clamp-2">{a.detail}</div>
                   </div>
                 </div>
               ))}
             </div>
-            {IS_DEMO && <div className="mt-3 text-[10px] text-warning/90">Demo mode · simulated prices</div>}
           </div>
         )}
 

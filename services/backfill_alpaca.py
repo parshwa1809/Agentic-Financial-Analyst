@@ -24,8 +24,8 @@ try:
 except Exception:
     _HAVE_YFINANCE = False
 
-API_KEY = os.getenv("ALPACA_API_KEY")
-API_SECRET = os.getenv("ALPACA_API_SECRET")
+API_KEY = os.getenv("ALPACA_API_KEY") or os.getenv("ALPACA_KEY")
+API_SECRET = os.getenv("ALPACA_API_SECRET") or os.getenv("ALPACA_SECRET")
 BASE_URL = os.getenv("ALPACA_BASE_URL", "https://data.alpaca.markets")
 
 engine = get_engine()

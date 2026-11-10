@@ -1,4 +1,5 @@
 import pandas as pd
+from sqlalchemy import text
 from services.db_manager import get_engine
 # NEW IMPORT: Use custom indicator
 from services.indicators import calculate_rsi 
@@ -7,7 +8,7 @@ engine = get_engine()
 
 def get_political_risk_context(ticker):
     try:
-        df = pd.read_sql(f"SELECT * FROM political_risk WHERE ticker='{ticker}' OR ticker='MARKET' ORDER BY detected_at DESC LIMIT 3", engine)
+        df = pd.read_sql(text("SELECT * FROM political_risk WHERE ticker=:t OR ticker='MARKET' ORDER BY detected_at DESC LIMIT 3"), engine, params={"t": ticker})
         if df.empty: return ""
         text = "**⚠️ Political/Regulatory Risks:**\n"
         for _, row in df.iterrows():
@@ -17,7 +18,9 @@ def get_political_risk_context(ticker):
 
 def get_supply_chain_context(ticker):
     try:
-        df = pd.read_sql(f"SELECT * FROM supply_chain WHERE ticker='{ticker}'", engine)
+        # only evidence-backed, currently confirmed links
+        df = pd.read_sql(text("SELECT * FROM supply_chain WHERE ticker=:t AND COALESCE(status,'active')='active' "
+                              "AND COALESCE(source_type,'legacy') <> 'legacy'"), engine, params={"t": ticker})
         if df.empty: return ""
         suppliers = df[df['relationship'] == 'SUPPLIER']['partner_ticker'].tolist()
         customers = df[df['relationship'] == 'CUSTOMER']['partner_ticker'].tolist()
@@ -30,7 +33,7 @@ def get_supply_chain_context(ticker):
 def get_smart_context(ticker):
     context = f"**Analysis for {ticker}:**\n\n"
     try:
-        df = pd.read_sql(f"SELECT * FROM market_data WHERE ticker='{ticker}' ORDER BY timestamp DESC LIMIT 50", engine)
+        df = pd.read_sql(text("SELECT * FROM market_data WHERE ticker=:t ORDER BY timestamp DESC LIMIT 50"), engine, params={"t": ticker})
         if not df.empty:
             df = df.sort_values('timestamp')
             latest = df.iloc[-1]
@@ -47,7 +50,7 @@ def get_smart_context(ticker):
     
     # Recent Alerts
     try:
-        alerts = pd.read_sql(f"SELECT message, created_at FROM active_alerts WHERE ticker='{ticker}' ORDER BY created_at DESC LIMIT 3", engine)
+        alerts = pd.read_sql(text("SELECT message, created_at FROM active_alerts WHERE ticker=:t ORDER BY created_at DESC LIMIT 3"), engine, params={"t": ticker})
         if not alerts.empty:
             context += f"\n**Recent Signals:**\n"
             for _, row in alerts.iterrows():
@@ -56,7 +59,7 @@ def get_smart_context(ticker):
     
     # Recent News
     try:
-        news = pd.read_sql(f"SELECT headline FROM news_articles WHERE ticker='{ticker}' ORDER BY published_at DESC LIMIT 2", engine)
+        news = pd.read_sql(text("SELECT headline FROM news_articles WHERE ticker=:t ORDER BY published_at DESC LIMIT 2"), engine, params={"t": ticker})
         if not news.empty:
             context += f"\n**Recent News:**\n"
             for _, row in news.iterrows():

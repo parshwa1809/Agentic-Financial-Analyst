@@ -1,103 +1,137 @@
-import time
+"""
+News relationship agent (LangGraph).
+
+Every minute it takes ALL headlines it hasn't processed yet (not just the newest),
+asks the local LLM whether a headline states a supplier / customer / competitor
+relationship between two companies, and saves a link only when:
+  - both companies resolve to listed US tickers,
+  - the quote is really in the headline and names the partner,
+  - the relationship type is valid.
+Each saved link keeps the article URL as its source.
+"""
 import json
 import os
-import pandas as pd
-from typing import TypedDict, List
-from langgraph.graph import StateGraph, END
-from langchain_ollama import ChatOllama
-from langchain_core.messages import SystemMessage, HumanMessage
+import time
+from typing import List, TypedDict
 
-from services.db_manager import get_engine, execute_query
+import pandas as pd
+from langgraph.graph import END, StateGraph
+from sqlalchemy import text
+
+from services import llm
+from services.db_manager import get_engine
+from services.heartbeat import beat
 from services.redis_manager import get_redis_client
+from services.relationship_store import grounded, resolve, save_link
 
 engine = get_engine()
-r = get_redis_client() # Added Redis client to track state
+r = get_redis_client()
 
-LLM_MODEL = os.getenv("OLLAMA_MODEL_NAME", "phi3:mini")
-LLM_URL = os.getenv("OLLAMA_API_URL", "http://host.docker.internal:11434")
+BATCH = 25          # headlines loaded per cycle
+PER_CALL = 15       # headlines sent to the model in one request (saves free-tier quota)
+CURSOR_KEY = "agent:last_news_id_num"
+
+PROMPT = """Below are numbered news headlines. For each one that EXPLICITLY says a named company is a
+SUPPLIER to, a CUSTOMER of, or a COMPETITOR of another named company, output a relationship.
+Most headlines contain none; skip those. Use only what the headline says.
+
+"type" describes target relative to source: SUPPLIER = target supplies source; CUSTOMER = target buys from source.
+"quote" = the words from that headline that state the relationship.
+
+Return JSON: {{"relationships": [{{"i": 3, "source": "Apple", "target": "TSMC", "type": "SUPPLIER", "quote": "..."}}]}}
+
+HEADLINES:
+{lines}
+"""
+
+
+# Only headlines that could state a relationship are sent to the AI (most can't): saves free-tier quota.
+import re as _re
+REL_WORDS = _re.compile(r"\b(suppl\w*|suppliers?|customers?|clients?|orders?|contracts?|deals?|agreements?|partner\w*|"
+                        r"rivals?|compet\w*|vs\.?|versus|chips? from|sources? from|buy\w* from|sells? to|wins?|signs?|"
+                        r"awarded|selects?|chooses|picks|powers|foundry|manufactur\w*|outsourc\w*)\b", _re.I)
+
 
 class AgentState(TypedDict):
-    text: str
-    relationships: List[dict]
-    article_id: str # Track ID to avoid duplicates
+    articles: List[dict]
+    saved: int
+
 
 def load_node(state: AgentState):
-    # Fetch latest news
-    df = pd.read_sql("SELECT id, headline FROM news_articles ORDER BY published_at DESC LIMIT 1", engine)
-    
-    if df.empty: 
-        return {"text": "NO_DATA"}
-    
-    current_id = str(df.iloc[0]['id'])
-    headline = df.iloc[0]['headline']
-    
-    # Check if we already processed this ID
-    last_processed_id = r.get("agent:last_news_id")
-    if last_processed_id and last_processed_id.decode('utf-8') == current_id:
-        return {"text": "NO_DATA"}
-    
-    return {"text": headline, "article_id": current_id}
+    raw = r.get(CURSOR_KEY)
+    if raw is None:
+        # first run: start with the most recent 200 headlines instead of the whole archive
+        with engine.connect() as conn:
+            top = conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM news_articles")).scalar() or 0
+        raw = str(max(0, int(top) - 200)).encode()
+        r.set(CURSOR_KEY, raw)
+    last = int(raw.decode())
+    df = pd.read_sql(text("SELECT id, ticker, headline, url FROM news_articles WHERE id > :last ORDER BY id ASC LIMIT :n"),
+                     engine, params={"last": last, "n": BATCH})
+    return {"articles": df.to_dict(orient="records"), "saved": 0}
 
-def extract_node(state: AgentState):
-    if state["text"] == "NO_DATA": 
-        return {"relationships": []}
-    
-    llm = ChatOllama(base_url=LLM_URL, model=LLM_MODEL, format="json")
-    prompt = f"Extract business relationship from: '{state['text']}'. JSON format: {{'source':'AAPL', 'target':'TSM', 'type':'SUPPLIER'}}."
-    
-    try:
-        res = llm.invoke([SystemMessage(content="Extractor Bot"), HumanMessage(content=prompt)])
-        # Handle potential string/markdown wrapping in response
-        content = res.content
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-            
-        data = json.loads(content)
-        
-        if isinstance(data, dict) and "source" in data: 
-            return {"relationships": [data]}
-        elif isinstance(data, list):
-            return {"relationships": data}
-        elif "relationships" in data:
-            return {"relationships": data["relationships"]}
-    except Exception as e: 
-        print(f"Extraction Error: {e}")
-        
-    return {"relationships": []}
 
-def save_node(state: AgentState):
-    # If we had data, mark this ID as processed in Redis
-    if "article_id" in state and state["text"] != "NO_DATA":
-        r.set("agent:last_news_id", state["article_id"])
-
-    for relation in state["relationships"]:
-        if "source" in relation and "target" in relation:
-            print(f"🔗 New Link: {relation.get('source')} -> {relation.get('target')}")
+def extract_and_save_node(state: AgentState):
+    arts = state["articles"]
+    if not arts:
+        return state
+    saved = 0
+    candidates = [a for a in arts if REL_WORDS.search(str(a.get("headline") or ""))]
+    if not candidates:
+        r.set(CURSOR_KEY, str(arts[-1]["id"]))
+        return {"articles": arts, "saved": 0}
+    print(f"   {len(candidates)}/{len(arts)} headlines could state a relationship; sending only those to the AI")
+    for k in range(0, len(candidates), PER_CALL):
+        chunk = candidates[k:k + PER_CALL]
+        lines = "\n".join(f"{i}. [{a.get('ticker')}] {a.get('headline')}" for i, a in enumerate(chunk))
+        try:
+            data = llm.generate_json(PROMPT.format(lines=lines), purpose="relationships", temperature=0, max_tokens=900)
+            rels = data.get("relationships", []) if isinstance(data, dict) else []
+        except llm.BudgetExceeded as e:
+            print(f"⏸️ {e}")
+            return {"articles": arts[:k], "saved": saved}  # leave the rest for tomorrow
+        except Exception as e:
+            print(f"Extraction error: {e}")
+            rels = []
+        for rel in rels if isinstance(rels, list) else []:
+            if not isinstance(rel, dict):
+                continue
             try:
-                execute_query(
-                    "INSERT IGNORE INTO supply_chain (ticker, partner_ticker, relationship) VALUES (:s, :p, :r)", 
-                    {"s": relation.get('source'), "p": relation.get('target'), "r": relation.get('type', 'PARTNER')}
-                )
-            except: pass
-    return state
+                art = chunk[int(rel.get("i"))]
+            except (TypeError, ValueError, IndexError):
+                continue
+            headline = str(art.get("headline") or "")
+            src, tgt = resolve(rel.get("source")), resolve(rel.get("target"))
+            if not src or not tgt or src == tgt:
+                continue
+            if not grounded(rel.get("quote") or headline, headline, must_mention=(rel.get("target"), tgt)):
+                continue
+            if save_link(src, tgt, rel.get("type"), "news", headline, art.get("url")):
+                saved += 1
+                print(f"🔗 News link: {src} —{rel.get('type')}→ {tgt}  ({headline[:70]})")
+        r.set(CURSOR_KEY, str(chunk[-1]["id"]))
+    r.set(CURSOR_KEY, str(arts[-1]["id"]))  # headlines without relationship words are skipped, not re-read
+    return {"articles": arts, "saved": saved}
+
 
 workflow = StateGraph(AgentState)
 workflow.add_node("load", load_node)
-workflow.add_node("extract", extract_node)
-workflow.add_node("save", save_node)
-
+workflow.add_node("extract_and_save", extract_and_save_node)
 workflow.set_entry_point("load")
-workflow.add_edge("load", "extract")
-workflow.add_edge("extract", "save")
-workflow.add_edge("save", END)
-
+workflow.add_edge("load", "extract_and_save")
+workflow.add_edge("extract_and_save", END)
 app = workflow.compile()
 
 if __name__ == "__main__":
-    print("🕵️ Relationship Agent Active (LangGraph)...")
+    print("🕵️ Relationship Agent Active (LangGraph, evidence-checked)...")
     while True:
-        try: 
-            app.invoke({"text": "", "relationships": [], "article_id": ""})
-        except Exception as e: 
+        try:
+            out = app.invoke({"articles": [], "saved": 0})
+            n = len(out.get("articles", []))
+            beat("relationship_agent", "ok", f"processed {n} headlines, saved {out.get('saved', 0)} links", ttl=900)
+            if n == BATCH:
+                continue  # backlog: keep going without sleeping
+        except Exception as e:
             print(f"Agent Loop Error: {e}")
+            beat("relationship_agent", "error", str(e), ttl=900)
         time.sleep(60)

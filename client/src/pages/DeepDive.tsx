@@ -1,11 +1,26 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '@/lib/api';
-import { Network, ArrowDownToLine, ArrowUpFromLine, Swords, Newspaper, LineChart, Link2, GitFork, Layers } from 'lucide-react';
+import { Network, ArrowDownToLine, ArrowUpFromLine, Swords, Newspaper, LineChart, Link2, GitFork, Layers, ExternalLink, ShieldCheck } from 'lucide-react';
 
 interface Ticker { symbol: string; name: string }
 interface ChainNode { id: string; type: string; depth?: number; change?: number }
-interface ChainLink { source?: string; target: string; type: string; depth?: number }
-interface Chain { nodes: ChainNode[]; links: ChainLink[] }
+interface ChainLink {
+  source?: string; target: string; type: string; depth?: number; inferred?: boolean;
+  confidence?: number | null; source_type?: string | null; source_url?: string | null; evidence?: string | null;
+  status?: string | null; first_seen?: string | null; last_verified?: string | null; n_sources?: number | null;
+  statement?: string; partner_name?: string; share?: number | null; share_kind?: 'single' | 'each' | 'group' | null;
+  depends_on?: 'partner_on_target' | 'target_on_partner' | null; disclosed_by?: string | null;
+}
+interface Concentration { partner: string; name: string; share: number; kind: 'single' | 'each'; direction: string }
+interface Chain { nodes: ChainNode[]; links: ChainLink[]; summary?: Record<string, number>; concentration?: Concentration[] }
+const shareLabel = (l: { share?: number | null; share_kind?: string | null }) =>
+  l.share == null ? null : l.share_kind === 'each' ? `≥${l.share}%` : l.share_kind === 'group' ? `top group ${l.share}%` : `${l.share}%`;
+
+const SOURCE_LABEL: Record<string, string> = { filing: 'annual report (10-K)', news: 'news', profile: 'profile', web: 'web', legacy: 'unverified' };
+const SOURCE_CLS: Record<string, string> = {
+  filing: 'bg-success/15 text-success', news: 'bg-info/15 text-info', profile: 'bg-primary/15 text-primary',
+  web: 'bg-warning/15 text-warning', legacy: 'bg-secondary text-muted-foreground',
+};
 interface Placed { id: string; type: string; depth: number; x: number; y: number; angle: number; change?: number }
 
 const COLORS: Record<string, string> = {
@@ -184,17 +199,16 @@ export default function DeepDive() {
   const [available, setAvailable] = useState<Ticker[]>([]);
   const [chain, setChain] = useState<Chain>({ nodes: [], links: [] });
   const [depth, setDepth] = useState(1);
-  const [risk, setRisk] = useState(0);
   const [loading, setLoading] = useState(false);
   const [highlight, setHighlight] = useState<string[] | null>(null);
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
 
-  const load = async (sym: string, d = depth) => {
+  const load = async (sym: string, d = depth, vo = verifiedOnly) => {
     if (!sym) return;
     setTicker(sym); setLoading(true); setHighlight(null);
     try {
-      const [res, stats] = await Promise.all([api.getSupplyChain(sym, d), api.getStats(sym)]);
+      const res = await api.getSupplyChain(sym, d, vo);
       setChain(res.data);
-      setRisk(stats.data.risk_score || 0);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -207,19 +221,25 @@ export default function DeepDive() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const switchDepth = (d: number) => { setDepth(d); load(ticker, d); };
+  const toggleVerified = () => { const v = !verifiedOnly; setVerifiedOnly(v); load(ticker, depth, v); };
+  const [queued, setQueued] = useState('');
+  const researchNow = async () => {
+    try { await api.researchNow(ticker); setQueued(ticker); } catch { setQueued(''); }
+  };
 
   const firstOrder = chain.links.filter((l) => (l.depth ?? 1) === 1);
-  const by = (t: string) => firstOrder.filter((l) => l.type === t);
+  const dependents = firstOrder.filter((l) => l.depends_on === 'partner_on_target');
+  const by = (t: string) => firstOrder.filter((l) => l.type === t && l.depends_on !== 'partner_on_target');
   const paths = useMemo(() => secondOrderPaths(ticker, chain), [ticker, chain]);
   const secondCount = new Set(chain.nodes.filter((n) => n.depth === 2).map((n) => n.id)).size;
-  const riskColor = risk > 65 ? 'hsl(350 89% 62%)' : risk > 45 ? 'hsl(38 96% 58%)' : 'hsl(152 70% 46%)';
+  const bySource = firstOrder.reduce<Record<string, number>>((m, l) => { const k = l.status === 'stale' ? 'stale' : l.source_type || 'legacy'; m[k] = (m[k] || 0) + 1; return m; }, {});
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-2xl font-bold tracking-tight"><Network className="text-primary" /> Deep Dive</div>
-          <p className="text-sm text-muted-foreground mt-1">The supply-chain map the LLM agent built, and how risk travels through it.</p>
+          <p className="text-sm text-muted-foreground mt-1">Supplier, customer and competitor links, each backed by a quote from an SEC filing or a news article.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {available.map((t) => (
@@ -240,6 +260,16 @@ export default function DeepDive() {
                 </button>
               ))}
             </div>
+            <button onClick={toggleVerified} data-verified={verifiedOnly}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${verifiedOnly ? 'border-success/50 bg-success/10 text-success' : 'border-border/70 text-muted-foreground hover:text-foreground'}`}
+              title="Hide links not re-confirmed in the last 30 days">
+              <ShieldCheck size={13} /> {verifiedOnly ? 'Confirmed in last 30 days' : 'All evidence-backed links'}
+            </button>
+            <button onClick={researchNow} disabled={queued === ticker}
+              className="rounded-lg border border-border/70 px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground disabled:opacity-60"
+              title="Search suppliers' filings, this company's 10-K, profile and web for evidence-backed links">
+              {queued === ticker ? 'Research queued — refresh in a few minutes' : 'Research now'}
+            </button>
             <div className="flex gap-3 text-[11px] text-muted-foreground">
               {Object.entries(COLORS).map(([k, c]) => <span key={k} className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: c }} />{k.toLowerCase()}s</span>)}
               {depth === 2 && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full border border-dashed border-muted-foreground" />2nd-order</span>}
@@ -254,6 +284,7 @@ export default function DeepDive() {
           )}
           <div className="flex gap-5 px-1 text-xs text-muted-foreground">
             <span><b className="text-foreground font-mono">{firstOrder.length}</b> direct partners</span>
+            {chain.summary && <span><b className="text-success font-mono">{chain.summary.active || 0}</b> confirmed · <b className="text-warning font-mono">{chain.summary.stale || 0}</b> not re-confirmed in 30 days</span>}
             {depth === 2 && <span><b className="text-foreground font-mono">{secondCount}</b> second-order companies</span>}
           </div>
         </div>
@@ -282,48 +313,71 @@ export default function DeepDive() {
           ) : (
             <div className="panel p-4 space-y-4">
               {[
-                { type: 'SUPPLIER', title: 'Suppliers', icon: ArrowDownToLine, verb: 'supplies' },
-                { type: 'CUSTOMER', title: 'Customers', icon: ArrowUpFromLine, verb: 'buys' },
-                { type: 'COMPETITOR', title: 'Competitors', icon: Swords, verb: 'rival' },
-              ].map(({ type, title, icon: Icon, verb }) => (
+                { type: 'DEPENDS', title: `Companies that report ${ticker} as a major customer`, hint: `their revenue depends on ${ticker}`, icon: ArrowDownToLine, color: COLORS.SUPPLIER, rows: [...dependents].sort((a, b) => (b.share ?? 0) - (a.share ?? 0)) },
+                { type: 'SUPPLIER', title: `Suppliers named in filings`, hint: `sell to ${ticker}`, icon: ArrowDownToLine, color: COLORS.SUPPLIER, rows: by('SUPPLIER') },
+                { type: 'CUSTOMER', title: 'Customers named in filings', hint: `buy from ${ticker}`, icon: ArrowUpFromLine, color: COLORS.CUSTOMER, rows: by('CUSTOMER') },
+                { type: 'COMPETITOR', title: 'Competitors named in filings', hint: `compete with ${ticker}`, icon: Swords, color: COLORS.COMPETITOR, rows: by('COMPETITOR') },
+              ].filter((g) => g.rows.length || g.type !== 'DEPENDS').map(({ type, title, hint, icon: Icon, color, rows }) => (
                 <div key={type}>
-                  <div className="flex items-center gap-2 text-xs font-semibold mb-2" style={{ color: COLORS[type] }}><Icon size={14} /> {title} <span className="text-muted-foreground font-normal">({by(type).length})</span></div>
+                  <div className="flex items-center gap-2 text-xs font-semibold" style={{ color }}><Icon size={14} /> {title} <span className="text-muted-foreground font-normal">({rows.length})</span></div>
+                  <div className="text-[10.5px] text-muted-foreground mb-2 pl-5">{hint}</div>
                   <div className="space-y-1.5">
-                    {by(type).map((l) => (
-                      <div key={l.target} className="flex items-center justify-between rounded-lg bg-background/50 border border-border/60 px-2.5 py-1.5 text-xs">
-                        <span className="font-mono font-bold">{l.target}</span>
-                        <span className="flex items-center gap-2"><Move v={chain.nodes.find((n) => n.id === l.target)?.change} /><span className="text-muted-foreground">{verb}</span></span>
-                      </div>
-                    ))}
-                    {by(type).length === 0 && !loading && <div className="text-xs text-muted-foreground italic">None found yet</div>}
+                    {rows.map((l) => {
+                      const st = l.source_type || 'legacy';
+                      const stale = l.status === 'stale';
+                      return (
+                        <div key={l.target} className={`rounded-lg bg-background/50 border border-border/60 px-2.5 py-1.5 text-xs ${stale || st === 'legacy' ? 'opacity-60' : ''}`}
+                          title={[l.evidence ? `“${l.evidence}”` : '',
+                            l.last_verified ? `Last confirmed ${l.last_verified}` : '', l.inferred ? 'Found via the other company’s research' : ''].filter(Boolean).join('\n')}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="flex items-center gap-1.5 min-w-0"><span className="font-mono font-bold">{l.target}</span>
+                              {shareLabel(l) && <span className="rounded-full bg-primary/15 text-primary px-1.5 py-0.5 text-[10px] font-semibold font-mono" title="Share of the disclosing company's revenue, as stated in the quote">{shareLabel(l)}</span>}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <Move v={chain.nodes.find((n) => n.id === l.target)?.change} />
+                              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${SOURCE_CLS[st] || SOURCE_CLS.legacy}`}>{stale ? 'stale' : SOURCE_LABEL[st] || st}</span>
+                              {l.source_url && <a href={l.source_url} target="_blank" rel="noreferrer" className="text-info hover:text-foreground" aria-label="Open source"><ExternalLink size={12} /></a>}
+                            </span>
+                          </div>
+                          {l.statement && <div className="text-[11px] mt-1 leading-snug">{l.statement}</div>}
+                          {l.evidence && <details className="mt-0.5"><summary className="text-[10px] text-muted-foreground cursor-pointer">quote from the source</summary><div className="text-[10.5px] text-muted-foreground italic mt-0.5">“{l.evidence}”</div></details>}
+                        </div>
+                      );
+                    })}
+                    {rows.length === 0 && !loading && <div className="text-xs text-muted-foreground italic">None documented yet</div>}
                   </div>
                 </div>
               ))}
             </div>
           )}
 
+          {chain.concentration && chain.concentration.length > 0 && (
+            <div className="panel p-4">
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Revenue concentration on {ticker}</div>
+              <p className="text-[11px] text-muted-foreground mt-1 mb-3">Share of each company's revenue that comes from {ticker}, as stated in its own annual report. These are the companies most exposed to a change at {ticker}.</p>
+              <div className="space-y-2">
+                {chain.concentration.map((c) => (
+                  <div key={c.partner} className="text-xs">
+                    <div className="flex justify-between"><span><b className="font-mono">{c.partner}</b> <span className="text-muted-foreground">{c.name}</span></span><span className="font-mono font-semibold">{c.kind === 'each' ? '≥' : ''}{c.share}%</span></div>
+                    <div className="h-1.5 rounded-full bg-muted mt-1 overflow-hidden"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, c.share)}%` }} /></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="panel p-4" data-tour="risk">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Composite risk · {ticker}</div>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="font-mono text-4xl font-bold" style={{ color: riskColor }}>{risk}</span>
-              <span className="text-muted-foreground text-sm">/ 100</span>
-            </div>
-            <div className="h-2 rounded-full bg-muted mt-3 overflow-hidden">
-              <div className="h-full rounded-full" style={{ width: `${risk}%`, background: riskColor, transition: 'width 1s ease' }} />
-            </div>
-            <div className="mt-4 space-y-2 text-xs">
-              {[
-                { icon: Newspaper, label: 'News & political risk', w: '40%' },
-                { icon: LineChart, label: 'Technical signals', w: '30%' },
-                { icon: Link2, label: 'Supplier contagion', w: '30%' },
-              ].map((r) => (
-                <div key={r.label} className="flex items-center gap-2">
-                  <r.icon size={14} className="text-muted-foreground" />
-                  <span className="flex-1">{r.label}</span>
-                  <span className="font-mono text-muted-foreground">{r.w}</span>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Where the links come from · {ticker}</div>
+            <div className="mt-3 space-y-2 text-xs">
+              {Object.entries(bySource).sort((x, y) => y[1] - x[1]).map(([k, n]) => (
+                <div key={k} className="flex items-center justify-between">
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${SOURCE_CLS[k] || SOURCE_CLS.legacy}`}>{k === 'stale' ? 'stale' : SOURCE_LABEL[k] || k}</span>
+                  <span className="font-mono font-semibold">{n}</span>
                 </div>
               ))}
+              {firstOrder.length === 0 && <div className="text-muted-foreground">No links found yet.</div>}
             </div>
+            <p className="text-[11px] text-muted-foreground mt-3">A link is kept only when the quoted sentence is found word-for-word in the source document. Hover a link to read the quote; click the arrow to open the filing. Links without a stored quote are dimmed.</p>
           </div>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { AutoTerm } from '@/components/PlainText';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts';
@@ -12,7 +13,7 @@ interface CandleData {
   timestamp: string; open: number; high: number; low: number; close: number; volume: number;
   RSI?: number; VWAP?: number; MACD?: number; BandWidth?: number;
 }
-interface Stats { risk_score: number; ratios: Array<{ key: string; label: string; value: string | number }> }
+interface Stats { ratios: Array<{ key: string; label: string; value: string | number }> }
 interface Alert { created_at: string; ticker: string; message: string }
 interface NewsItem { url: string; headline: string; ticker: string; sentiment_score: number; published_at?: string }
 
@@ -75,30 +76,9 @@ const Indicator = ({ label, value, tone, hint }: { label: string; value?: number
   if (value === undefined || value === null || isNaN(Number(value))) return null;
   return (
     <div className="rounded-xl border border-border/70 bg-background/40 px-3 py-2 min-w-[92px]">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground"><AutoTerm text={label} /></div>
       <div className={`font-mono font-bold text-sm ${tone}`}>{Number(value).toFixed(2)}</div>
       <div className="text-[10px] text-muted-foreground">{hint}</div>
-    </div>
-  );
-};
-
-const RiskRing = ({ score }: { score: number }) => {
-  const r = 22, c = 2 * Math.PI * r;
-  const color = score > 65 ? 'hsl(350 89% 62%)' : score > 45 ? 'hsl(38 96% 58%)' : 'hsl(152 70% 46%)';
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-background/40 pl-2 pr-3 py-1.5">
-      <svg width="56" height="56" viewBox="0 0 56 56">
-        <circle cx="28" cy="28" r={r} stroke="hsl(var(--muted))" strokeWidth="5" fill="none" />
-        <circle cx="28" cy="28" r={r} stroke={color} strokeWidth="5" fill="none" strokeLinecap="round"
-          strokeDasharray={c} strokeDashoffset={c * (1 - score / 100)} transform="rotate(-90 28 28)"
-          style={{ transition: 'stroke-dashoffset 1s ease' }} />
-        <text x="28" y="33" textAnchor="middle" className="font-mono" fontSize="14" fontWeight="700" fill="currentColor">{score}</text>
-      </svg>
-      <div className="leading-tight">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Risk score</div>
-        <div className="text-xs font-semibold" style={{ color }}>{score > 65 ? 'High' : score > 45 ? 'Moderate' : 'Low'}</div>
-        <div className="text-[10px] text-muted-foreground">news · tech · supply</div>
-      </div>
     </div>
   );
 };
@@ -114,6 +94,7 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [flash, setFlash] = useState<'' | 'flash-up' | 'flash-down'>('');
+  const [feed, setFeed] = useState<{ status: string; detail: string; last_bar_utc?: string | null } | null>(null);
   const prevPrice = useRef<number | null>(null);
 
   useEffect(() => {
@@ -153,6 +134,17 @@ export default function Dashboard() {
     return () => { clearInterval(f); clearInterval(s); };
   }, [activeTicker, timeframe, fetchFast, fetchSlow]);
 
+  // Real feed state for the badge: LIVE only when bars are actually arriving.
+  useEffect(() => {
+    if (!activeTicker) return;
+    const load = () => api.getSystemStatus(activeTicker)
+      .then((r) => setFeed(r.data.agents.find((a: { key: string }) => a.key === 'price') || null))
+      .catch(() => setFeed(null));
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, [activeTicker]);
+
   const stale = dataKey !== `${activeTicker}-${timeframe}`;
   const latest = data.length && !stale ? data[data.length - 1] : null;
   const first = data.length ? data[0] : null;
@@ -183,7 +175,7 @@ export default function Dashboard() {
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-5">
       <div className="flex flex-col gap-5 min-w-0">
         {/* ticker tabs */}
-        <div className="flex gap-2 flex-wrap" data-tour="tickers">
+        <div className={`flex gap-2 ${tickers.length > 8 ? 'overflow-x-auto scroll-panel pb-1 [&>button]:shrink-0' : 'flex-wrap'}`} data-tour="tickers">
           {tickers.map((t) => {
             const on = t.symbol === activeTicker;
             return (
@@ -206,9 +198,14 @@ export default function Dashboard() {
           <div className="flex flex-wrap items-center justify-between gap-4 px-5 pt-4">
             <div className="flex items-end gap-4">
               <div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="relative flex w-2 h-2"><span className="absolute inset-0 rounded-full bg-success animate-ping opacity-70" /><span className="relative w-2 h-2 rounded-full bg-success" /></span>
-                  LIVE · {current?.name || activeTicker}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground" title={feed?.detail}>
+                  {(() => {
+                    const lastBar = feed?.last_bar_utc ? format(new Date(feed.last_bar_utc.replace(' ', 'T') + 'Z'), 'MMM d, HH:mm') : null;
+                    if (!feed) return <><span className="w-2 h-2 rounded-full bg-muted-foreground" /> {current?.name || activeTicker}</>;
+                    if (feed.status === 'ok') return <><span className="relative flex w-2 h-2"><span className="absolute inset-0 rounded-full bg-success animate-ping opacity-70" /><span className="relative w-2 h-2 rounded-full bg-success" /></span>LIVE · {current?.name || activeTicker}</>;
+                    if (feed.status === 'idle') return <><span className="w-2 h-2 rounded-full bg-info" />MARKET CLOSED · last bar {lastBar || '—'} · {current?.name || activeTicker}</>;
+                    return <><span className="w-2 h-2 rounded-full bg-destructive" /><span className="text-destructive">STALE DATA</span> · last bar {lastBar || '—'} · {current?.name || activeTicker}</>;
+                  })()}
                 </div>
                 <div className="flex items-baseline gap-3 mt-0.5">
                   <span className="text-3xl font-bold tracking-tight">{activeTicker}</span>
@@ -232,15 +229,14 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-2 px-5 pt-4">
             {latest && (
               <>
-                <Indicator label="RSI 14" value={latest.RSI} tone={Number(latest.RSI) > 70 ? 'text-destructive' : Number(latest.RSI) < 30 ? 'text-success' : 'text-foreground'}
-                  hint={Number(latest.RSI) > 70 ? 'overbought' : Number(latest.RSI) < 30 ? 'oversold' : 'neutral'} />
-                <Indicator label="MACD" value={latest.MACD} tone={Number(latest.MACD) >= 0 ? 'text-success' : 'text-destructive'} hint={Number(latest.MACD) >= 0 ? 'bullish' : 'bearish'} />
-                <Indicator label="VWAP" value={latest.VWAP} tone={latest.close >= Number(latest.VWAP) ? 'text-success' : 'text-destructive'} hint={latest.close >= Number(latest.VWAP) ? 'price above' : 'price below'} />
-                <Indicator label="BB width" value={latest.BandWidth} tone="text-info" hint="volatility %" />
+                <Indicator label="RSI 14" value={latest.RSI} tone="text-foreground"
+                  hint="0–100: share of recent moves that were up" />
+                <Indicator label="MACD" value={latest.MACD} tone={Number(latest.MACD) >= 0 ? 'text-success' : 'text-destructive'} hint="short-term minus longer-term average price" />
+                <Indicator label="VWAP" value={latest.VWAP} tone={latest.close >= Number(latest.VWAP) ? 'text-success' : 'text-destructive'} hint={latest.close >= Number(latest.VWAP) ? "price is above today's average trade price" : "price is below today's average trade price"} />
+                <Indicator label="BB width" value={latest.BandWidth} tone="text-info" hint="width of the recent price range, %" />
               </>
             )}
             <div className="flex-1" />
-            {stats && <RiskRing score={stats.risk_score} />}
           </div>
 
           <div className={`h-[330px] px-2 pb-2 pt-3 transition-opacity duration-300 ${stale ? 'opacity-30' : ''}`}>
@@ -276,7 +272,7 @@ export default function Dashboard() {
           <div className="flex gap-4 px-5 pb-4 text-[11px] text-muted-foreground">
             <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-warning" /> VWAP</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-primary/40" /> Volume</span>
-            <span className="flex items-center gap-1.5"><Radio size={12} /> updates every 5s</span>
+            <span className="flex items-center gap-1.5"><Radio size={12} /> {feed?.status === 'ok' ? 'updates every 5s' : feed?.detail || 'checking feed…'}</span>
           </div>
         </div>
 
@@ -316,8 +312,8 @@ export default function Dashboard() {
 
           <div className="panel flex flex-col" data-tour="news">
             <div className="panel-head">
-              <span className="flex items-center gap-2"><Newspaper size={16} className="text-info" /> News + sentiment</span>
-              <span className="chip text-muted-foreground">scored by LLM</span>
+              <span className="flex items-center gap-2"><Newspaper size={16} className="text-info" /> Latest news</span>
+              <span className="chip text-muted-foreground">headlines link to the publisher</span>
             </div>
             <div className="px-3 pb-3 space-y-2 overflow-y-auto scroll-panel h-[230px]">
               {uniqueNews.map((n, i) => (
@@ -325,9 +321,7 @@ export default function Dashboard() {
                   <div className="text-[13px] leading-snug">{n.headline}</div>
                   <div className="flex justify-between items-center mt-1.5 text-[11px]">
                     <span className="text-muted-foreground font-mono">{n.ticker} · {timeOf(n.published_at)}</span>
-                    <span className={`rounded-full px-2 py-0.5 font-semibold ${n.sentiment_score > 0 ? 'bg-success/15 text-success' : n.sentiment_score < 0 ? 'bg-destructive/15 text-destructive' : 'bg-secondary text-muted-foreground'}`}>
-                      {n.sentiment_score > 0 ? 'Bullish' : n.sentiment_score < 0 ? 'Bearish' : 'Neutral'} {n.sentiment_score > 0 ? '+' : ''}{Number(n.sentiment_score).toFixed(1)}
-                    </span>
+                    <span className="text-muted-foreground truncate max-w-[45%]">{(() => { try { return new URL(n.url).hostname.replace('www.', ''); } catch { return ''; } })()}</span>
                   </div>
                 </a>
               ))}

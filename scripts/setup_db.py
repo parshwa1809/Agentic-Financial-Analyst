@@ -79,6 +79,20 @@ TABLES = [
 COLUMN_MIGRATIONS = [
     ("supply_chain", "reason", "TEXT"),
     ("supply_chain", "confidence", "FLOAT DEFAULT 1.0"),
+    # provenance for every relationship (see services/relationship_store.py)
+    ("supply_chain", "source_type", "VARCHAR(12)"),
+    ("supply_chain", "source_rank", "INT DEFAULT 0"),
+    ("supply_chain", "source_url", "TEXT"),
+    ("supply_chain", "evidence", "TEXT"),
+    ("supply_chain", "first_seen", "DATETIME"),
+    ("supply_chain", "last_verified", "DATETIME"),
+    ("supply_chain", "status", "VARCHAR(12) DEFAULT 'active'"),
+    ("supply_chain", "n_sources", "INT DEFAULT 1"),
+    # AI-scored risk for every headline (not only the high-risk ones)
+    ("news_articles", "risk_score", "INT"),
+    ("news_articles", "risk_factor", "VARCHAR(50)"),
+    # sources + number check behind each council verdict
+    ("council_verdicts", "evidence_json", "TEXT"),
     ("fundamentals", "roa", "FLOAT"),
     ("fundamentals", "roe", "FLOAT"),
     ("fundamentals", "beta", "FLOAT"),
@@ -112,6 +126,27 @@ def init_db():
         ).fetchone()
         if cols and cols[0].lower() == "varchar":
             conn.execute(text("ALTER TABLE political_risk MODIFY headline TEXT"))
+
+    # Evidence rule: supply-chain links without a stored quote and source link are deleted.
+    try:
+        with engine.begin() as conn:
+            n = conn.execute(text(
+                "DELETE FROM supply_chain WHERE source_type IS NULL OR source_type = 'legacy' "
+                "OR evidence IS NULL OR CHAR_LENGTH(TRIM(evidence)) < 20 "
+                "OR source_url IS NULL OR source_url NOT LIKE 'http%'")).rowcount
+        if n:
+            print(f"   🧹 Removed {n} supply-chain links with no evidence")
+    except Exception as e:
+        print(f"   ⚠️ Evidence purge skipped: {e}")
+
+    # Ratings are no longer produced: remove stored BUY/SELL/HOLD verdicts from the old council.
+    try:
+        with engine.begin() as conn:
+            n = conn.execute(text("DELETE FROM council_verdicts WHERE verdict IS NULL OR verdict <> 'BRIEFING'")).rowcount
+        if n:
+            print(f"   🧹 Removed {n} old rating verdicts")
+    except Exception as e:
+        print(f"   ⚠️ Verdict cleanup skipped: {e}")
 
     # Seed a starter watchlist only when the table is empty
     rows = execute_query("SELECT COUNT(*) FROM tickers")

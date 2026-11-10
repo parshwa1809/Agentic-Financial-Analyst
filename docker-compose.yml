@@ -27,7 +27,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: stock-api
-    command: sh -c "python scripts/setup_db.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # --reload: code edits under app/ and services/ take effect without restarting the container
+    command: sh -c "python scripts/setup_db.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app --reload-dir services"
     volumes:
       - .:/app
     env_file: .env
@@ -171,6 +172,54 @@ services:
       - api
     networks: 
       - stock-net
+
+  # RAG: embeds 10-K/20-F text, profiles, news and relationship evidence into TiDB
+  # (Ollama `nomic-embed-text`), and indexes any company the chat asks about on demand.
+  rag-indexer:
+    build: .
+    container_name: stock-rag-indexer
+    command: python -u -m services.rag_indexer
+    restart: always
+    volumes:
+      - .:/app
+    env_file: .env
+    depends_on: [redis-queue, api]
+    environment:
+      - TZ=America/New_York
+      - PYTHONPATH=/app
+      - OLLAMA_API_URL=http://host.docker.internal:11434
+    networks: [stock-net]
+
+  # "What changed" alerts: partner moves, new SEC filings, earnings dates, high-risk news
+  event-engine:
+    build: .
+    container_name: stock-event-engine
+    command: python -u -m services.event_engine
+    restart: always
+    volumes:
+      - .:/app
+    env_file: .env
+    depends_on: [redis-queue, api]
+    environment:
+      - TZ=America/New_York
+      - PYTHONPATH=/app
+    networks: [stock-net]
+
+  # Runs once on every `docker compose up`, fills the price gap since the last stored
+  # bar for watchlist tickers (Alpaca historical bars), then exits.
+  backfill:
+    build: .
+    container_name: stock-backfill
+    command: sh -c "sleep 20 && python -u -m services.backfill_alpaca --days $${BACKFILL_DAYS:-30} --timeframe 5Min"
+    restart: "no"
+    volumes:
+      - .:/app
+    env_file: .env
+    depends_on: [redis-queue, api]
+    environment:
+      - TZ=America/New_York
+      - PYTHONPATH=/app
+    networks: [stock-net]
 
   maintenance:
     build: .

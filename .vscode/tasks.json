@@ -1,0 +1,21 @@
+{
+  // Starts Project Oracle automatically when this folder is opened in VS Code.
+  // The first time, VS Code asks "Allow automatic tasks?" — choose Allow.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Project Oracle",
+      "type": "shell",
+      "command": "./start-oracle.command",
+      "runOptions": { "runOn": "folderOpen" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Stop Project Oracle",
+      "type": "shell",
+      "command": "docker compose stop",
+      "problemMatcher": []
+    }
+  ]
+}

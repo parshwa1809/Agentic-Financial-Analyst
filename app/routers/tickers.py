@@ -57,7 +57,7 @@ def activate_ticker(symbol: str):
         jobs = [
             ("services.backfill_alpaca.backfill_tickers", ([symbol],), {"days": 30, "timeframe": "5Min", "chunk_sleep": 0.5}, "10m"),
             ("services.news_fetcher.fetch_news_for_symbols", ([symbol],), {}, "2m"),
-            ("services.seed_supply_chain.discover_partners", (symbol,), {}, "5m"),
+            ("services.seed_supply_chain.discover_partners", (symbol,), {}, "15m"),
         ]
         for func_path, args, kwargs, timeout in jobs:
             try:
@@ -78,3 +78,15 @@ def deactivate_ticker(symbol: str):
     with engine.begin() as conn:
         conn.execute(text("UPDATE tickers SET is_active=0 WHERE symbol=:s"), {"s": symbol})
     return {"status": "success"}
+
+@router.post("/{symbol}/research")
+def research_now(symbol: str):
+    """Queue an immediate evidence-backed relationship research run for one ticker
+    (suppliers' 10-K customer disclosures, its own 10-K, profile, web)."""
+    symbol = symbol.upper()
+    try:
+        r.delete(f"research:last:{symbol}")
+        job = queue.enqueue("services.seed_supply_chain.discover_partners", symbol, job_timeout="15m")
+        return {"queued": True, "symbol": symbol, "job_id": job.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

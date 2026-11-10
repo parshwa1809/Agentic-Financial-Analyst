@@ -36,7 +36,7 @@ def check_supply_chain_contagion(ticker):
         alerts = []
         for p in partners:
             partner_ticker = p[0]
-            relation = p[1]
+            relation = (p[1] or "partner").lower()
             
             # 2. Check partner's performance today
             # FIX: Table 'market_data' (was stock_prices)
@@ -56,9 +56,11 @@ def check_supply_chain_contagion(ticker):
                 # 3. TRIGGER: If a Supplier crashes > 3%, warn the user
                 if pct_change < -3.0:
                     alerts.append({
-                        "type": "Supply Chain Risk",
+                        "type": "Partner price drop",
                         "severity": "high",
-                        "message": f"Contagion Warning: Key {relation} {partner_ticker} is down {pct_change:.1f}%. Monitor {ticker} impact."
+                        "message": (f"{partner_ticker}, which a filing or article names as a {relation} of {ticker}, fell "
+                                    f"{abs(pct_change):.1f}% between its last two prices. This is a move in the partner's price; "
+                                    f"it doesn't say anything will happen to {ticker}.")
                     })
         return alerts
     except Exception as e:
@@ -84,9 +86,11 @@ def check_sentiment_divergence(ticker, price_change):
         # TRIGGER: Price Up (>1%) AND Sentiment Bad (<-0.2)
         if price_change > 1.0 and avg_sentiment < -0.2:
             return [{
-                "type": "Sentiment Divergence",
+                "type": "Price up, headlines negative",
                 "severity": "medium",
-                "message": f"Bull Trap Warning: {ticker} price rising (+{price_change:.1f}%) but AI sentiment is negative ({avg_sentiment:.2f})."
+                "message": (f"{ticker}'s price rose {price_change:.1f}% while headlines from the last day read as negative in tone "
+                            f"(average {avg_sentiment:.2f} on a scale from −1 negative to +1 positive, scored by AI). "
+                            f"The two are moving in different directions; this doesn't predict the next move.")
             }]
         return []
     except Exception as e:
@@ -122,13 +126,13 @@ def generate_alerts():
         
         # --- 1. Technical Alerts (Placeholder for RSI logic) ---
         if pct_change > 5.0:
-             new_alerts.append({"type": "Price Spike", "severity": "low", "message": f"{t} is up {pct_change:.1f}% in short term."})
+             new_alerts.append({"type": "Price Spike", "severity": "low", "message": f"{t}'s price rose {pct_change:.1f}% between its last two prices, a bigger jump than the 5% this alert watches for."})
 
         # --- 2. NEW: Supply Chain Contagion ---
         new_alerts.extend(check_supply_chain_contagion(t))
         
-        # --- 3. NEW: Sentiment Divergence ---
-        new_alerts.extend(check_sentiment_divergence(t, pct_change))
+        # Sentiment-divergence ("bull trap") alerts were removed: they relied on an
+        # unvalidated sentiment score. Alerts now state only measured price moves.
         
         # Save Alerts to DB
         for alert in new_alerts:

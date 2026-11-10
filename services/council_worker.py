@@ -8,6 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import core logic and database management
 from services.db_manager import get_engine, execute_query
+from services.heartbeat import beat
 from app.internal.agent_council import run_council
 
 engine = get_engine()
@@ -28,11 +29,12 @@ def needs_update(ticker):
         with engine.connect() as conn:
             query = text("""
                 SELECT created_at FROM council_verdicts 
-                WHERE ticker = :t 
-                AND created_at >= NOW() - INTERVAL 1 HOUR 
+                WHERE ticker = :t AND verdict = 'BRIEFING'
+                AND created_at >= NOW() - INTERVAL :h HOUR 
                 ORDER BY created_at DESC LIMIT 1
             """)
-            row = conn.execute(query, {"t": ticker}).fetchone()
+            hours = int(float(os.getenv("COUNCIL_REFRESH_HOURS", "8" if os.getenv("LLM_PROVIDER", "ollama") != "ollama" else "1")))
+            row = conn.execute(query, {"t": ticker, "h": hours}).fetchone()
             
         if row:
             print(f"   ✅ {ticker} is fresh (analyzed at {row[0]}). Skipping.")
@@ -72,6 +74,7 @@ def run_continuous_council():
                 else:
                     time.sleep(0.1)
 
+            beat("council", "ok", f"cycle complete for {len(tickers)} tickers", ttl=3600)
             print("💤 Cycle complete. Sleeping 5 minutes before re-checking...")
             time.sleep(300)
 
@@ -80,6 +83,7 @@ def run_continuous_council():
             break
         except Exception as e:
             print(f"❌ Worker Critical Error: {e}")
+            beat("council", "error", str(e))
             time.sleep(30)
 
 if __name__ == "__main__":

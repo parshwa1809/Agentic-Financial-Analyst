@@ -78,7 +78,11 @@ def update_fundamentals(ticker):
         data = {
             "t": ticker, "mc": info.get("marketCap"), "pe": info.get("trailingPE"),
             "pb": info.get("priceToBook"), "de": info.get("debtToEquity"),
-            "pm": info.get("profitMargins"), "dy": info.get("dividendYield"),
+            "pm": info.get("profitMargins"),
+            # Store yield as a FRACTION (0.029 = 2.9%). yfinance's `dividendYield` switched to percent
+            # units in 2025, so prefer the trailing fraction, then dividend rate ÷ price.
+            "dy": info.get("trailingAnnualDividendYield")
+                  or ((info.get("dividendRate") or 0) / info["currentPrice"] if info.get("currentPrice") else None),
             "roa": info.get("returnOnAssets"), "roe": info.get("returnOnEquity"),
             "beta": info.get("beta")
         }

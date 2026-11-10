@@ -52,8 +52,14 @@ def check_missing_supply_chain():
             print(f"   ⚠️ Found {len(missing_tickers)} tickers with no supply chain data. Queueing...")
             
             for ticker in missing_tickers:
-                queue.enqueue(discover_partners, ticker, job_timeout='2m')
-                print(f"      -> Queued {ticker}")
+                # Don't re-queue a ticker researched in the last 24 h (it may simply have no
+                # verifiable links); the supply-chain worker covers it on its own cycle.
+                last = redis_conn.get(f"research:last:{ticker}")
+                if last and time.time() - int(last) < 86400:
+                    continue
+                if redis_conn.set(f"research:queued:{ticker}", "1", nx=True, ex=3600):
+                    queue.enqueue(discover_partners, ticker, job_timeout='15m')
+                    print(f"      -> Queued {ticker}")
         else:
             print("   ✅ All active tickers have supply chain data.")
             

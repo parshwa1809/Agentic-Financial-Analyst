@@ -1,3 +1,4 @@
+import re
 import sys
 import os
 import threading
@@ -15,6 +16,7 @@ if ROOT not in sys.path:
 
 from services.redis_manager import get_redis_client
 from services.db_manager import get_engine
+from services.heartbeat import beat
 
 ALPACA_KEY = os.getenv("ALPACA_KEY")
 ALPACA_SECRET = os.getenv("ALPACA_SECRET")
@@ -25,6 +27,7 @@ engine = get_engine()
 
 current_stream = None
 stream_thread = None
+_last_bar_beat = 0.0
 
 def get_ecosystem_tickers():
     """
@@ -60,8 +63,23 @@ def get_ecosystem_tickers():
         # Filter out junk
         blacklist = {"UNKNOWN", "NONE", "NULL", "TBA", "VARIOUS", "N/A"}
         full_universe = [t for t in full_universe if t and t.upper() not in blacklist and len(t) < 10]
+
+        # Alpaca's stream rejects the whole subscription (400 "invalid syntax") if ANY
+        # symbol is malformed, so keep only US-style tickers (e.g. AAPL, BRK.B) and log the rest.
+        valid_re = re.compile(r"^[A-Z]{1,5}(\.[A-Z]{1,2})?$")
+        skipped = [t for t in full_universe if not valid_re.match(t.strip())]
+        full_universe = [t.strip() for t in full_universe if valid_re.match(t.strip())]
+        if skipped:
+            print(f"⚠️ Skipping {len(skipped)} symbols Alpaca can't stream: {sorted(skipped)}")
         
-        final_list = sorted(full_universe)
+        # Alpaca's free (Basic) plan allows 30 WebSocket symbols. Watchlist tickers always go
+        # first; partners fill the remaining slots. Raise ALPACA_MAX_SYMBOLS on a paid plan.
+        cap = int(os.getenv("ALPACA_MAX_SYMBOLS", "30"))
+        active_first = sorted(t for t in full_universe if t in active_set)
+        partners = sorted(t for t in full_universe if t not in active_set)
+        final_list = (active_first + partners)[:cap]
+        if len(full_universe) > cap:
+            print(f"ℹ️ Streaming {cap} of {len(full_universe)} symbols (plan limit); {len(full_universe) - cap} partners skipped")
         
         # DEBUG PRINT
         print(f"📋 Ecosystem Price Target: {len(active_set)} Active + {len(partner_set)} Partners = {len(final_list)} Total")
@@ -103,6 +121,12 @@ async def bar_handler(bar):
         
         # 3. Trim (Keep last 100 candles in Redis memory)
         redis_client.zremrangebyrank(f"window:{symbol}", 0, -101)
+
+        # 4. Heartbeat (throttled) so the UI can show the stream is really delivering bars
+        global _last_bar_beat
+        if time.time() - _last_bar_beat > 30:
+            _last_bar_beat = time.time()
+            beat("price_stream", "ok", f"receiving bars · last {symbol} @ {float(close_price):.2f}")
         
     except Exception as e:
         print(f"❌ Handler Error: {e}")
@@ -124,6 +148,7 @@ def start_stream_in_thread(tickers):
         current_stream.run()
     except Exception as e:
         print(f"❌ Stream Crash: {e}")
+        beat("price_stream", "error", f"stream crashed: {e}")
 
 def run_service():
     global current_stream, stream_thread
@@ -136,6 +161,7 @@ def run_service():
         
         if not new_tickers:
             print("⚠️ No tickers found in Ecosystem! Waiting...")
+            beat("price_stream_subscription", "idle", "no tickers to stream")
         
         # First run (or the stream thread died): start ONE websocket connection.
         # Alpaca's free IEX feed allows only a single concurrent connection, so we
@@ -159,6 +185,9 @@ def run_service():
             except Exception as e:
                 print(f"⚠️ Subscription update failed ({e}); will retry next cycle")
         
+        if new_tickers:
+            beat("price_stream_subscription", "ok", f"subscribed to {len(active_tickers)} tickers", ttl=300)
+
         # Check for new partners every 30 seconds
         time.sleep(30)
 

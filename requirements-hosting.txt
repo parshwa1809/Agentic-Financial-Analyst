@@ -1,0 +1,4 @@
+# Only needed when EMBED_PROVIDER=fastembed (hosted deployments without Ollama).
+# Kept out of requirements.txt because fastembed pulls PyStemmer, which fails to build on python:3.10-slim.
+# Install in a hosting image with:  pip install --only-binary=:all: fastembed
+fastembed
